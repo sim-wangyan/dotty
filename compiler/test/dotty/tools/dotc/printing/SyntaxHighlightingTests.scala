@@ -39,8 +39,8 @@ class SyntaxHighlightingTests extends DottyTest {
     test("type Foo", "<K|type> <T|Foo>")
     test("type Foo =", "<K|type> <T|Foo> =")
     test("type Foo = Int", "<K|type> <T|Foo> = <T|Int>")
-    test("type A = String | Int", "<K|type> <T|A> = <T|String | Int>")
-    test("type B = String & Int", "<K|type> <T|B> = <T|String & Int>")
+    test("type A = String | Int", "<K|type> <T|A> = <T|String> <T||> <T|Int>")
+    test("type B = String & Int", "<K|type> <T|B> = <T|String> <T|&> <T|Int>")
   }
 
   @Test
@@ -110,6 +110,8 @@ class SyntaxHighlightingTests extends DottyTest {
 
     test("def f1(x: Int) = 123", "<K|def> <V|f1>(<V|x>: <T|Int>) = <L|123>")
     test("def f2[T](x: T) = { 123 }", "<K|def> <V|f2>[<T|T>](<V|x>: <T|T>) = { <L|123> }")
+
+    test("def f3[T[_", "<K|def> <V|f3>[<T|T>[<T|_>")
   }
 
   @Test

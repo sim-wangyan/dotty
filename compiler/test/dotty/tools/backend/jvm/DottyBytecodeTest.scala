@@ -46,18 +46,19 @@ trait DottyBytecodeTest {
   def initCtx = {
     val ctx0 = (new ContextBase).initialCtx.fresh
     val outputDir = new VirtualDirectory("<DottyBytecodeTest output>")
+    ctx0.setSetting(ctx0.settings.silentWarnings, true)
     ctx0.setSetting(ctx0.settings.classpath, TestConfiguration.basicClasspath)
     ctx0.setProperty(ContextDoc, new ContextDocstrings)
     ctx0.setSetting(ctx0.settings.outputDir, outputDir)
   }
 
-  /** Checks source code from raw string */
-  def checkBCode(source: String)(checkOutput: AbstractFile => Unit): Unit = {
+  /** Checks source code from raw strings */
+  def checkBCode(sources: String*)(checkOutput: AbstractFile => Unit): Unit = {
     implicit val ctx: Context = initCtx
 
     val compiler = new Compiler
     val run = compiler.newRun
-    compiler.newRun.compile(source)
+    compiler.newRun.compileFromStrings(sources: _*)
 
     checkOutput(ctx.settings.outputDir.value)
   }
@@ -73,6 +74,10 @@ trait DottyBytecodeTest {
     classNode.methods.asScala.find(_.name == name) getOrElse
       sys.error(s"Didn't find method '$name' in class '${classNode.name}'")
 
+  protected def getField(classNode: ClassNode, name: String): FieldNode =
+    classNode.fields.asScala.find(_.name == name) getOrElse
+      sys.error(s"Didn't find field '$name' in class '${classNode.name}'")
+
   def diffInstructions(isa: List[Instruction], isb: List[Instruction]): String = {
     val len = Math.max(isa.length, isb.length)
     val sb = new StringBuilder
@@ -80,8 +85,8 @@ trait DottyBytecodeTest {
       val width = isa.map(_.toString.length).max
       val lineWidth = len.toString.length
       (1 to len) foreach { line =>
-        val isaPadded = isa.map(_.toString) orElse Stream.continually("")
-        val isbPadded = isb.map(_.toString) orElse Stream.continually("")
+        val isaPadded = isa.map(_.toString) orElse LazyList.continually("")
+        val isbPadded = isb.map(_.toString) orElse LazyList.continually("")
         val a = isaPadded(line-1)
         val b = isbPadded(line-1)
 
@@ -152,7 +157,7 @@ trait DottyBytecodeTest {
       (false, s"Different member counts in $name1 and $name2")
     } else {
       val msg     = new StringBuilder
-      val success = (ms1, ms2).zipped forall { (m1, m2) =>
+      val success = ms1.lazyZip(ms2) forall { (m1, m2) =>
         val c1 = f(m1)
         val c2 = f(m2).replaceAllLiterally(name2, name1)
         if (c1 == c2)

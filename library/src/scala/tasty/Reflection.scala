@@ -1,37 +1,30 @@
 package scala.tasty
 
+import scala.quoted.QuoteContext
 import scala.tasty.reflect._
 
-abstract class Reflection
+class Reflection(private[scala] val internal: CompilerInterface)
     extends Core
-    with CaseDefOps
     with ConstantOps
     with ContextOps
+    with CommentOps
     with FlagsOps
     with IdOps
+    with ImplicitsOps
     with ImportSelectorOps
     with QuotedOps
-    with PatternOps
     with PositionOps
-    with Printers
-    with SettingsOps
+    with PrinterOps
+    with ReportingOps
+    with RootPosition
     with SignatureOps
     with StandardDefinitions
     with SymbolOps
     with TreeOps
     with TreeUtils
-    with TypeOrBoundsTreeOps
     with TypeOrBoundsOps { self =>
 
   def typeOf[T: scala.quoted.Type]: Type =
-    implicitly[scala.quoted.Type[T]].unseal.tpe
+    summon[scala.quoted.Type[T]].unseal.tpe
 
-  val util: reflect.utils.TreeUtils { val reflect: self.type } = new reflect.utils.TreeUtils {
-    val reflect: self.type = self
-  }
-}
-
-object Reflection {
-  /** Compiler tasty context available in a top level ~ of an inline macro */
-  def macroContext: Reflection = throw new Exception("Not in inline macro.")
 }

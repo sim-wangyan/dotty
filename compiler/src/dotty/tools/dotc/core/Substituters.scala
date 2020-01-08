@@ -21,7 +21,7 @@ trait Substituters { this: Context =>
           .mapOver(tp)
     }
 
-  final def subst1(tp: Type, from: Symbol, to: Type, theMap: Subst1Map): Type = {
+  final def subst1(tp: Type, from: Symbol, to: Type, theMap: Subst1Map): Type =
     tp match {
       case tp: NamedType =>
         val sym = tp.symbol
@@ -34,9 +34,8 @@ trait Substituters { this: Context =>
         (if (theMap != null) theMap else new Subst1Map(from, to))
           .mapOver(tp)
     }
-  }
 
-  final def subst2(tp: Type, from1: Symbol, to1: Type, from2: Symbol, to2: Type, theMap: Subst2Map): Type = {
+  final def subst2(tp: Type, from1: Symbol, to1: Type, from2: Symbol, to2: Type, theMap: Subst2Map): Type =
     tp match {
       case tp: NamedType =>
         val sym = tp.symbol
@@ -50,15 +49,14 @@ trait Substituters { this: Context =>
         (if (theMap != null) theMap else new Subst2Map(from1, to1, from2, to2))
           .mapOver(tp)
     }
-  }
 
-  final def subst(tp: Type, from: List[Symbol], to: List[Type], theMap: SubstMap): Type = {
+  final def subst(tp: Type, from: List[Symbol], to: List[Type], theMap: SubstMap): Type =
     tp match {
       case tp: NamedType =>
         val sym = tp.symbol
         var fs = from
         var ts = to
-        while (fs.nonEmpty) {
+        while (fs.nonEmpty && ts.nonEmpty) {
           if (fs.head eq sym) return ts.head
           fs = fs.tail
           ts = ts.tail
@@ -71,7 +69,6 @@ trait Substituters { this: Context =>
         (if (theMap != null) theMap else new SubstMap(from, to))
           .mapOver(tp)
     }
-  }
 
   final def substSym(tp: Type, from: List[Symbol], to: List[Symbol], theMap: SubstSymMap): Type =
     tp match {
@@ -194,5 +191,29 @@ trait Substituters { this: Context =>
 
   final class SubstParamsMap(from: BindingType, to: List[Type]) extends DeepTypeMap {
     def apply(tp: Type): Type = substParams(tp, from, to, this)
+  }
+
+  /** An approximating substitution that can handle wildcards in the `to` list */
+  final class SubstApproxMap(from: List[Symbol], to: List[Type])(implicit ctx: Context) extends ApproximatingTypeMap {
+    def apply(tp: Type): Type = tp match {
+      case tp: NamedType =>
+        val sym = tp.symbol
+        var fs = from
+        var ts = to
+        while (fs.nonEmpty && ts.nonEmpty) {
+          if (fs.head eq sym)
+            return ts.head match {
+              case TypeBounds(lo, hi) => range(lo, hi)
+              case tp1 => tp1
+            }
+          fs = fs.tail
+          ts = ts.tail
+        }
+        if (tp.prefix `eq` NoPrefix) tp else derivedSelect(tp, apply(tp.prefix))
+      case _: ThisType | _: BoundType =>
+        tp
+      case _ =>
+        mapOver(tp)
+    }
   }
 }

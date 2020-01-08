@@ -38,7 +38,9 @@ object Dynamic {
  *    or `applyDynamic` on a `Selectable` instance. @See handleStructural.
  *
  */
-trait Dynamic { self: Typer with Applications =>
+trait Dynamic {
+  self: Typer & Applications =>
+
   import Dynamic._
   import tpd._
 
@@ -66,7 +68,7 @@ trait Dynamic { self: Typer with Applications =>
       }
     }
 
-     tree.fun match {
+    tree.fun match {
       case sel @ Select(qual, name) if !isDynamicMethod(name) =>
         typedDynamicApply(qual, name, sel.span, Nil)
       case TypeApply(sel @ Select(qual, name), targs) if !isDynamicMethod(name) =>
@@ -139,7 +141,7 @@ trait Dynamic { self: Typer with Applications =>
     val (fun @ Select(qual, name), targs, vargss) = decomposeCall(tree)
 
     def structuralCall(selectorName: TermName, ctags: List[Tree]) = {
-      val selectable = adapt(qual, defn.SelectableType)
+      val selectable = adapt(qual, defn.SelectableClass.typeRef)
 
       // ($qual: Selectable).$selectorName("$name", ..$ctags)
       val base =
@@ -159,7 +161,7 @@ trait Dynamic { self: Typer with Applications =>
 
     fun.tpe.widen match {
       case tpe: ValueType =>
-        structuralCall(nme.selectDynamic, Nil).asInstance(tpe)
+        structuralCall(nme.selectDynamic, Nil).cast(tpe)
 
       case tpe: MethodType =>
         def isDependentMethod(tpe: Type): Boolean = tpe match {
@@ -175,8 +177,8 @@ trait Dynamic { self: Typer with Applications =>
           fail(name, i"has a method type with inter-parameter dependencies")
         else {
           val ctags = tpe.paramInfoss.flatten.map(pt =>
-            implicitArgTree(defn.ClassTagType.appliedTo(pt.widenDealias :: Nil), fun.span.endPos))
-          structuralCall(nme.applyDynamic, ctags).asInstance(tpe.finalResultType)
+            implicitArgTree(defn.ClassTagClass.typeRef.appliedTo(pt.widenDealias :: Nil), fun.span.endPos))
+          structuralCall(nme.applyDynamic, ctags).cast(tpe.finalResultType)
         }
 
       // (@allanrenucci) I think everything below is dead code

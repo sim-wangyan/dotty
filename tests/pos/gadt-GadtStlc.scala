@@ -10,7 +10,7 @@ object GadtStlc {
   // Var[M[W]]
   sealed trait Var[A]
   object VarW extends Var[W]
-  case class VarM[A] extends Var[M[A]]
+  case class VarM[A]() extends Var[M[A]]
 
   // \s.e
   sealed trait Abs[S, E]
@@ -119,7 +119,7 @@ object GadtStlc {
         case Left(isv1) => progress(dapp.d2) match {
           case Right(r2) => Right(EApp2(isv1, r2))
           case Left(isv2) => followsIsLambda(isv1, dapp.d1) match {
-            case _: ISLAMBDAC[x, e] => Right(EAppAbs[x, e, b, _](isv2))
+            case _: ISLAMBDAC[x, e] => Right(EAppAbs[X = x, E = e, V2 = b](isv2))
           }
         }
       }

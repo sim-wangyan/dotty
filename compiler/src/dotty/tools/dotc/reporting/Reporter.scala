@@ -5,15 +5,21 @@ package reporting
 import scala.annotation.internal.sharable
 
 import core.Contexts._
+import core.TypeError
 import util.{SourcePosition, NoSourcePosition}
 import core.Decorators.PhaseListDecorator
 import collection.mutable
-import java.lang.System.currentTimeMillis
 import core.Mode
 import dotty.tools.dotc.core.Symbols.{Symbol, NoSymbol}
 import diagnostic.messages._
 import diagnostic._
+import ast.{tpd, Trees}
 import Message._
+import core.Decorators._
+
+import java.lang.System.currentTimeMillis
+import java.io.{ BufferedReader, PrintWriter }
+
 
 object Reporter {
   /** Convert a SimpleReporter into a real Reporter */
@@ -36,6 +42,29 @@ object Reporter {
 
   private val defaultIncompleteHandler: ErrorHandler =
     (mc, ctx) => ctx.reporter.report(mc)(ctx)
+
+  /** Show prompt if `-Xprompt` is passed as a flag to the compiler */
+  def displayPrompt(reader: BufferedReader, writer: PrintWriter): Unit = {
+    writer.println()
+    writer.print("a)bort, s)tack, r)esume: ")
+    writer.flush()
+    if (reader != null) {
+      def loop(): Unit = reader.read match {
+        case 'a' | 'A' =>
+          new Throwable().printStackTrace(writer)
+          System.exit(1)
+        case 's' | 'S' =>
+          new Throwable().printStackTrace(writer)
+          writer.println()
+          writer.flush()
+        case 'r' | 'R' =>
+          ()
+        case _ =>
+          loop()
+      }
+      loop()
+    }
+  }
 }
 
 trait Reporting { this: Context =>
@@ -48,13 +77,18 @@ trait Reporting { this: Context =>
     reporter.report(new Info(msg, pos))
 
   def reportWarning(warning: Warning): Unit =
-    if (!this.settings.silentWarnings.value) {
-      if (this.settings.XfatalWarnings.value) reporter.report(warning.toError)
+    if (!this.settings.silentWarnings.value)
+      if (this.settings.XfatalWarnings.value)
+        warning match {
+          case warning: ConditionalWarning if !warning.enablingOption.value =>
+            reporter.report(warning) // conditional warnings that are not enabled are not fatal
+          case _ =>
+            reporter.report(warning.toError)
+        }
       else reporter.report(warning)
-    }
 
   def deprecationWarning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
-    if (this.settings.deprecation.value) reportWarning(new DeprecationWarning(msg, pos))
+    reportWarning(new DeprecationWarning(msg, pos))
 
   def migrationWarning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
     reportWarning(new MigrationWarning(msg, pos))
@@ -65,45 +99,56 @@ trait Reporting { this: Context =>
   def featureWarning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
     reportWarning(new FeatureWarning(msg, pos))
 
-  def featureWarning(feature: String, featureDescription: String, isScala2Feature: Boolean,
+  def featureWarning(feature: String, featureDescription: String,
       featureUseSite: Symbol, required: Boolean, pos: SourcePosition): Unit = {
     val req = if (required) "needs to" else "should"
-    val prefix = if (isScala2Feature) "scala." else "dotty."
-    val fqname = prefix + "language." + feature
+    val fqname = s"scala.language.$feature"
 
-    val explain = {
+    val explain =
       if (reporter.isReportedFeatureUseSite(featureUseSite)) ""
       else {
         reporter.reportNewFeatureUseSite(featureUseSite)
         s"""
-           |This can be achieved by adding the import clause 'import $fqname'
-           |or by setting the compiler option -language:$feature.
            |See the Scala docs for value $fqname for a discussion
            |why the feature $req be explicitly enabled.""".stripMargin
       }
-    }
 
-    val msg = s"$featureDescription $req be enabled\nby making the implicit value $fqname visible.$explain"
+    val msg = s"""$featureDescription $req be enabled
+                 |by adding the import clause 'import $fqname'
+                 |or by setting the compiler option -language:$feature.$explain""".stripMargin
     if (required) error(msg, pos)
     else reportWarning(new FeatureWarning(msg, pos))
   }
 
   def warning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
-    reportWarning(new Warning(msg, pos))
+    reportWarning(new Warning(msg, addInlineds(pos)))
 
-  def strictWarning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
-    if (this.settings.strict.value) error(msg, pos)
-    else reportWarning(new ExtendMessage(() => msg)(_ + "\n(This would be an error under strict mode)").warning(pos))
+  def strictWarning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit = {
+    val fullPos = addInlineds(pos)
+    if (this.settings.strict.value) error(msg, fullPos)
+    else reportWarning(
+      new ExtendMessage(() => msg)(_ + "\n(This would be an error under strict mode)")
+        .warning(fullPos))
+  }
 
-  def error(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
-    reporter.report(new Error(msg, pos))
+  def error(msg: => Message, pos: SourcePosition = NoSourcePosition, sticky: Boolean = false): Unit = {
+    val fullPos = addInlineds(pos)
+    reporter.report(if (sticky) new StickyError(msg, fullPos) else new Error(msg, fullPos))
+    if ctx.settings.YdebugError.value then Thread.dumpStack()
+  }
+
+  def error(ex: TypeError, pos: SourcePosition): Unit = {
+    error(ex.toMessage, pos, sticky = true)
+    if (ctx.settings.YdebugTypeError.value)
+      ex.printStackTrace
+  }
 
   def errorOrMigrationWarning(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
-    if (ctx.scala2Mode) migrationWarning(msg, pos) else error(msg, pos)
+    if (ctx.scala2CompatMode) migrationWarning(msg, pos) else error(msg, pos)
 
   def restrictionError(msg: => Message, pos: SourcePosition = NoSourcePosition): Unit =
     reporter.report {
-      new ExtendMessage(() => msg)(m => s"Implementation restriction: $m").error(pos)
+      new ExtendMessage(() => msg)(m => s"Implementation restriction: $m").error(addInlineds(pos))
     }
 
   def incompleteInputError(msg: => Message, pos: SourcePosition = NoSourcePosition)(implicit ctx: Context): Unit =
@@ -135,6 +180,14 @@ trait Reporting { this: Context =>
 
   def debugwarn(msg: => String, pos: SourcePosition = NoSourcePosition): Unit =
     if (this.settings.Ydebug.value) warning(msg, pos)
+
+  private def addInlineds(pos: SourcePosition)(implicit ctx: Context) = {
+    def recur(pos: SourcePosition, inlineds: List[Trees.Tree[?]]): SourcePosition = inlineds match {
+      case inlined :: inlineds1 => pos.withOuter(recur(inlined.sourcePos, inlineds1))
+      case Nil => pos
+    }
+    recur(pos, tpd.enclosingInlineds)
+  }
 }
 
 /**
@@ -151,7 +204,7 @@ abstract class Reporter extends interfaces.ReporterResult {
    *  debugging information (like printing the classpath) is not rendered
    *  invisible due to the max message length.
    */
-  private[this] var _truncationOK: Boolean = true
+  private var _truncationOK: Boolean = true
   def truncationOK: Boolean = _truncationOK
   def withoutTruncating[T](body: => T): T = {
     val saved = _truncationOK
@@ -160,7 +213,7 @@ abstract class Reporter extends interfaces.ReporterResult {
     finally _truncationOK = saved
   }
 
-  private[this] var incompleteHandler: ErrorHandler = defaultIncompleteHandler
+  private var incompleteHandler: ErrorHandler = defaultIncompleteHandler
 
   def withIncompleteHandler[T](handler: ErrorHandler)(op: => T): T = {
     val saved = incompleteHandler
@@ -169,21 +222,43 @@ abstract class Reporter extends interfaces.ReporterResult {
     finally incompleteHandler = saved
   }
 
-  private[this] var _errorCount = 0
-  private[this] var _warningCount = 0
+  private var _errorCount = 0
+  private var _warningCount = 0
+
+  /** The number of errors reported by this reporter (ignoring outer reporters) */
   def errorCount: Int = _errorCount
+
+  /** The number of warnings reported by this reporter (ignoring outer reporters) */
   def warningCount: Int = _warningCount
+
+  /** Have errors been reported by this reporter (ignoring outer reporters)? */
   def hasErrors: Boolean = errorCount > 0
+
+  /** Have warnings been reported by this reporter (ignoring outer reporters)? */
   def hasWarnings: Boolean = warningCount > 0
-  private[this] var errors: List[Error] = Nil
+
+  private var errors: List[Error] = Nil
+
+  /** All errors reported by this reporter (ignoring outer reporters) */
   def allErrors: List[Error] = errors
+
+  /** Were sticky errors reported? Overridden in StoreReporter. */
+  def hasStickyErrors: Boolean = false
 
   /** Have errors been reported by this reporter, or in the
    *  case where this is a StoreReporter, by an outer reporter?
    */
   def errorsReported: Boolean = hasErrors
 
-  private[this] var reportedFeaturesUseSites = Set[Symbol]()
+  /** Run `op` and return `true` if errors were reported by this reporter.
+   */
+  def reportsErrorsFor(op: Context => Unit)(given ctx: Context): Boolean = {
+    val initial = errorCount
+    op(ctx)
+    errorCount > initial
+  }
+
+  private var reportedFeaturesUseSites = Set[Symbol]()
 
   def isReportedFeatureUseSite(featureTrait: Symbol): Boolean =
     featureTrait.ne(NoSymbol) && reportedFeaturesUseSites.contains(featureTrait)
@@ -232,12 +307,9 @@ abstract class Reporter extends interfaces.ReporterResult {
 
   /** Returns a string meaning "n elements". */
   protected def countString(n: Int, elements: String): String = n match {
-    case 0 => "no " + elements + "s"
-    case 1 => "one " + elements
-    case 2 => "two " + elements + "s"
-    case 3 => "three " + elements + "s"
-    case 4 => "four " + elements + "s"
-    case _ => n + " " + elements + "s"
+    case 0 => s"no ${elements}s"
+    case 1 => s"1 ${elements}"
+    case _ => s"$n ${elements}s"
   }
 
   /** Should this diagnostic not be reported at all? */

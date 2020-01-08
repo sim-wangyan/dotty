@@ -32,7 +32,7 @@ object Scala2Flags {
   final val BYNAMEPARAM   = 1 << 16       // parameter is by name
   final val CONTRAVARIANT = 1 << 17       // symbol is a contravariant type variable
   final val ABSOVERRIDE   = 1 << 18       // combination of abstract & override
-  final val LOCAL         = 1 << 19       // symbol is local to current class (i.e. private[this] or protected[this]
+  final val LOCAL         = 1 << 19       // symbol is local to current class (i.e. private[this] or protected
                                           // pre: PRIVATE or PROTECTED are also set
   final val JAVA          = 1 << 20       // symbol was defined by a Java class
   final val STATIC        = 1 << 23       // static field, method or class
@@ -80,7 +80,6 @@ object Scala2Flags {
   final val MIXEDIN       = 1L << 35      // term member has been mixed in
   final val EXISTENTIAL   = 1L << 35      // type is an existential parameter or skolem
   final val EXPANDEDNAME  = 1L << 36      // name has been expanded with class suffix
-  final val IMPLCLASS     = 1L << 37      // symbol is an implementation class
   final val TRANS_FLAG    = 1L << 38      // transient flag guaranteed to be reset after each phase.
 
   final val LOCKED        = 1L << 39      // temporary flag to catch cyclic dependencies

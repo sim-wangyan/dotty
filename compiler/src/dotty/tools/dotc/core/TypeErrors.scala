@@ -17,7 +17,8 @@ import config.Printers.cyclicErrors
 
 class TypeError(msg: String) extends Exception(msg) {
   def this() = this("")
-  def toMessage(implicit ctx: Context): Message = getMessage
+  def toMessage(implicit ctx: Context): Message = super.getMessage
+  override def getMessage: String = super.getMessage
 }
 
 class MalformedType(pre: Type, denot: Denotation, absMembers: Set[Name]) extends TypeError {
@@ -39,16 +40,21 @@ class MissingType(pre: Type, name: Name) extends TypeError {
   }
 }
 
-class RecursionOverflow(val op: String, details: => String, previous: Throwable, val weight: Int) extends TypeError {
+class RecursionOverflow(val op: String, details: => String, val previous: Throwable, val weight: Int) extends TypeError {
 
   def explanation: String = s"$op $details"
 
   private def recursions: List[RecursionOverflow] = {
-    val nested = previous match {
-      case previous: RecursionOverflow => previous.recursions
-      case _ => Nil
+    import scala.collection.mutable.ListBuffer
+    val result = ListBuffer.empty[RecursionOverflow]
+    @annotation.tailrec def loop(throwable: Throwable): List[RecursionOverflow] = throwable match {
+      case ro: RecursionOverflow =>
+        result += ro
+        loop(ro.previous)
+      case _ => result.toList
     }
-    this :: nested
+
+    loop(this)
   }
 
   def opsString(rs: List[RecursionOverflow])(implicit ctx: Context): String = {
@@ -80,10 +86,10 @@ class RecursionOverflow(val op: String, details: => String, previous: Throwable,
 // Beware: Since this object is only used when handling a StackOverflow, this code
 // cannot consume significant amounts of stack.
 object handleRecursive {
-  def apply(op: String, details: => String, exc: Throwable, weight: Int = 1)(implicit ctx: Context): Nothing = {
-    if (ctx.settings.YnoDecodeStacktraces.value) {
+  def apply(op: String, details: => String, exc: Throwable, weight: Int = 1)(implicit ctx: Context): Nothing =
+    if (ctx.settings.YnoDecodeStacktraces.value)
       throw exc
-    } else {
+    else
       exc match {
         case _: RecursionOverflow =>
           throw new RecursionOverflow(op, details, exc, weight)
@@ -93,8 +99,6 @@ object handleRecursive {
           if (e != null) throw new RecursionOverflow(op, details, e, weight)
           else throw exc
       }
-    }
-  }
 }
 
 /**
@@ -119,8 +123,8 @@ class CyclicReference private (val denot: SymDenotation) extends TypeError {
      * Mode.InferringReturnType for the innermost member without type
      * annotations (!tree.tpt.typeOpt.exists).
      */
-    def errorMsg(cx: Context): Message = {
-      if (cx.mode is Mode.InferringReturnType) {
+    def errorMsg(cx: Context): Message =
+      if (cx.mode is Mode.InferringReturnType)
         cx.tree match {
           case tree: untpd.ValOrDefDef if !tree.tpt.typeOpt.exists =>
             if (inImplicitSearch)
@@ -134,13 +138,12 @@ class CyclicReference private (val denot: SymDenotation) extends TypeError {
           case _ =>
             errorMsg(cx.outer)
         }
-      }
+
       // Give up and give generic errors.
-      else if (cycleSym.is(Implicit, butNot = Method) && cycleSym.owner.isTerm)
+      else if (cycleSym.isOneOf(GivenOrImplicit, butNot = Method) && cycleSym.owner.isTerm)
         CyclicReferenceInvolvingImplicit(cycleSym)
       else
         CyclicReferenceInvolving(denot)
-    }
 
     errorMsg(ctx)
   }
@@ -150,7 +153,7 @@ object CyclicReference {
   def apply(denot: SymDenotation)(implicit ctx: Context): CyclicReference = {
     val ex = new CyclicReference(denot)
     if (!(ctx.mode is Mode.CheckCyclic)) {
-      cyclicErrors.println(ex.getMessage)
+      cyclicErrors.println(s"Cyclic reference involving $denot")
       for (elem <- ex.getStackTrace take 200)
         cyclicErrors.println(elem.toString)
     }
@@ -169,7 +172,15 @@ class MergeError(val sym1: Symbol, val sym2: Symbol, val tp1: Type, val tp2: Typ
   }
 
   protected def addendum(implicit ctx: Context): String =
-    if (prefix `eq` NoPrefix) "" else i"\nas members of type $prefix"
+    if (prefix `eq` NoPrefix) ""
+    else {
+      val owner = prefix match {
+        case prefix: ThisType => prefix.cls.show
+        case prefix: TermRef => prefix.symbol.show
+        case _ => i"type $prefix"
+      }
+      s"\nas members of $owner"
+    }
 
   override def toMessage(implicit ctx: Context): Message = {
     if (ctx.debug) printStackTrace()

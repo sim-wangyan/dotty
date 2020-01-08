@@ -205,7 +205,7 @@ object Test {
   def max[T](x: T, y: T)(implicit ev: Ord.Common { type This = T }) = if (ev.inject(x) < y) x else y
 
   def max[T](xs: List[T])(implicit ev: Ord.Common { type This = T }): T =
-    (Ord.by[T].minimum /: xs)(max(_, _))
+    xs.foldLeft(Ord.by[T].minimum)(max(_, _))
 
   val x1 = max(1, 2)
   val x2 = max(List(1), Nil)
@@ -315,7 +315,7 @@ object Test {
 
   implicit def $eq$gt_Monad[Ctx]: $eq$gt_Monad[Ctx] = new $eq$gt_Monad[Ctx]
 
-  g[F = [X] => Int => X]((ctx: Int) => 1, x => (ctx: Int) => x.toString)
+  g[F = [X] =>> Int => X]((ctx: Int) => 1, x => (ctx: Int) => x.toString)
 
 
 /* ---------------------------------------------------------------------------------

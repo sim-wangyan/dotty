@@ -29,8 +29,6 @@ sidebar:
               url: docs/reference/new-types/type-lambdas.html
             - title: Match types
               url: docs/reference/new-types/match-types.html
-            - title: Implicit Function Types
-              url: docs/reference/new-types/implicit-function-types.html
             - title: Dependent Function Types
               url: docs/reference/new-types/dependent-function-types.html
         - title: Enums
@@ -41,40 +39,84 @@ sidebar:
               url: docs/reference/enums/adts.html
             - title: Translation
               url: docs/reference/enums/desugarEnums.html
+        - title: Contextual Abstractions
+          subsection:
+            - title: Overview
+              url: docs/reference/contextual/motivation.html
+            - title: Given Instances
+              url: docs/reference/contextual/delegates.html
+            - title: Given Clauses
+              url: docs/reference/contextual/given-clauses.html
+            - title: Context Bounds
+              url: docs/reference/contextual/context-bounds.html
+            - title: Given Imports
+              url: docs/reference/contextual/import-delegate.html
+            - title: Extension Methods
+              url: docs/reference/contextual/extension-methods.html
+            - title: Implementing Typeclasses
+              url: docs/reference/contextual/typeclasses.html
+            - title: Typeclass Derivation
+              url: docs/reference/contextual/derivation.html
+            - title: Multiversal Equality
+              url: docs/reference/contextual/multiversal-equality.html
+            - title: Implicit Function Types
+              url: docs/reference/contextual/implicit-function-types.html
+            - title: Implicit Conversions
+              url: docs/reference/contextual/conversions.html
+            - title: Implicit By-Name Parameters
+              url: docs/reference/contextual/implicit-by-name-parameters.html
+            - title: Relationship with Scala 2 Implicits
+              url: docs/reference/contextual/relationship-implicits.html
+        - title: Metaprogramming
+          subsection:
+            - title: Overview
+              url: docs/reference/metaprogramming/toc.html
+            - title: Inline
+              url: docs/reference/metaprogramming/inline.html
+            - title: Macros
+              url: docs/reference/metaprogramming/macros.html
+            - title: Staging
+              url: docs/reference/metaprogramming/staging.html
+            - title: TASTy Reflection
+              url: docs/reference/metaprogramming/tasty-reflect.html
+            - title: TASTy Inspection
+              url: docs/reference/metaprogramming/tasty-inspect.html
         - title: Other New Features
           subsection:
-            - title: Typeclass Derivation
-              url: docs/reference/derivation.html
-            - title: Multiversal Equality
-              url: docs/reference/other-new-features/multiversal-equality.html
             - title: Trait Parameters
               url: docs/reference/other-new-features/trait-parameters.html
-            - title: Inlining by Rewriting
-              url: docs/reference/other-new-features/inline.html
-            - title: Meta Programming
-              url: docs/reference/other-new-features/principled-meta-programming.html
-            - title: TASTy Reflect
-              url: docs/reference/other-new-features/tasty-reflect.html
+            - title: Creator Applications
+              url: docs/reference/other-new-features/creator-applications.html
+            - title: Export Clauses
+              url: docs/reference/other-new-features/export.html
             - title: Opaque Type Aliases
               url: docs/reference/other-new-features/opaques.html
-            - title: Extension Methods
-              url: docs/reference/other-new-features/extension-methods.html
-            - title: By-Name Implicits
-              url: docs/reference/other-new-features/implicit-by-name-parameters.html
-            - title: Auto Parameter Tupling
-              url: docs/reference/other-new-features/auto-parameter-tupling.html
-            - title: Named Type Arguments
-              url: docs/reference/other-new-features/named-typeargs.html
-            - title: Erased Terms
-              url: docs/reference/other-new-features/erased-terms.html
+            - title: Open Classes
+              url: docs/reference/other-new-features/open-classes.html
+            - title: Parameter Untupling
+              url: docs/reference/other-new-features/parameter-untupling.html
             - title: Kind Polymorphism
               url: docs/reference/other-new-features/kind-polymorphism.html
-        - title: Changed Features
+            - title: Tupled Function
+              url: docs/reference/other-new-features/tupled-function.html
+            - title: threadUnsafe Annotation
+              url: docs/reference/other-new-features/threadUnsafe-annotation.html
+            - title: New Control Syntax
+              url: docs/reference/other-new-features/control-syntax.html
+            - title: Optional Braces
+              url: docs/reference/other-new-features/indentation.html
+            - title: Explicit Nulls
+              url: docs/reference/other-new-features/explicit-nulls.html
+        - title: Other Changed Features
           subsection:
-            - title: Volatile Lazy Vals
-              url: docs/reference/changed-features/lazy-vals.html
+            - title: Numeric Literals
+              url: docs/reference/changed-features/numeric-literals.html
             - title: Structural Types
               url: docs/reference/changed-features/structural-types.html
+            - title: Operators
+              url: docs/reference/changed-features/operators.html
+            - title: Wildcard Types
+              url: docs/reference/changed-features/wildcards.html
             - title: Type Checking
               url: docs/reference/changed-features/type-checking.html
             - title: Type Inference
@@ -83,14 +125,24 @@ sidebar:
               url: docs/reference/changed-features/implicit-resolution.html
             - title: Implicit Conversions
               url: docs/reference/changed-features/implicit-conversions.html
+            - title: Overload Resolution
+              url: docs/reference/changed-features/overload-resolution.html
+            - title: Match Expressions
+              url: docs/reference/changed-features/match-syntax.html
             - title: Vararg Patterns
               url: docs/reference/changed-features/vararg-patterns.html
-            - title: Pattern matching
+            - title: Pattern Bindings
+              url: docs/reference/changed-features/pattern-bindings.html
+            - title: Pattern Matching
               url: docs/reference/changed-features/pattern-matching.html
             - title: Eta Expansion
               url: docs/reference/changed-features/eta-expansion.html
             - title: Compiler Plugins
               url: docs/reference/changed-features/compiler-plugins.html
+            - title: Lazy Vals initialization
+              url: docs/reference/changed-features/lazy-vals-init.html
+            - title: Main Functions
+              url: docs/reference/changed-features/main-functions.html
         - title: Dropped Features
           subsection:
             - title: DelayedInit
@@ -101,8 +153,12 @@ sidebar:
               url: docs/reference/dropped-features/existential-types.html
             - title: Type Projection
               url: docs/reference/dropped-features/type-projection.html
+            - title: Do-While
+              url: docs/reference/dropped-features/do-while.html
             - title: Procedure Syntax
               url: docs/reference/dropped-features/procedure-syntax.html
+            - title: Package Objects
+              url: docs/reference/dropped-features/package-objects.html
             - title: Early Initializers
               url: docs/reference/dropped-features/early-initializers.html
             - title: Class Shadowing
@@ -117,20 +173,34 @@ sidebar:
               url: docs/reference/dropped-features/auto-apply.html
             - title: Weak Conformance
               url: docs/reference/dropped-features/weak-conformance.html
+            - title: Nonlocal Returns
+              url: docs/reference/dropped-features/nonlocal-returns.html
+            - title: "[this] Qualifier"
+              url: docs/reference/dropped-features/this-qualifier.html
     - title: Contributing
       subsection:
+        - title: Contribute Knowledge
+          url: docs/contributing/contribute-knowledge.html
         - title: Getting Started
           url: docs/contributing/getting-started.html
         - title: Workflow
           url: docs/contributing/workflow.html
-        - title: Eclipse
-          url: docs/contributing/eclipse.html
-        - title: IntelliJ IDEA
-          url: docs/contributing/intellij-idea.html
         - title: Testing
           url: docs/contributing/testing.html
-        - title: Working with the Backend
-          url: docs/contributing/backend.html
+        - title: Debugging
+          url: docs/contributing/debugging.html
+        - title: IDEs and Tools
+          subsection:
+            - title: Mill
+              url: docs/contributing/tools/mill.html
+            - title: Scalafix
+              url: docs/contributing/tools/scalafix.html
+        - title: Procedures
+          subsection:
+            - title: Release Model
+              url: docs/contributing/procedures/release.html
+            - title: Modifying the Test Framework
+              url: docs/contributing/procedures/vulpix.html
     - title: Internals
       subsection:
         - title: Backend
@@ -155,6 +225,8 @@ sidebar:
           url: docs/internals/type-system.html
         - title: "Dotty Internals 1: Trees & Symbols (Meeting Notes)"
           url: docs/internals/dotty-internals-1-notes.html
+        - title: Debug Macros
+          url: docs/internals/debug-macros.html
     - title: Resources
       subsection:
         - title: Talks

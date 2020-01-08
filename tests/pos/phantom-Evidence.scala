@@ -10,14 +10,14 @@ object WithNormalState {
     def newInstance(): Instance[Off] = new Instance[Off]
   }
   class Instance[S <: State] private {
-    def getOnInstance(implicit erased ev: S =::= Off): Instance[On] = new Instance[On] // phantom parameter ev is erased
-    def getOffInstance(implicit erased ev: S =::= On): Instance[Off] = new Instance[Off] // phantom parameter ev is erased
+    def getOnInstance (given erased ev: S =::= Off): Instance[On] = new Instance[On] // phantom parameter ev is erased
+    def getOffInstance (given erased ev: S =::= On): Instance[Off] = new Instance[Off] // phantom parameter ev is erased
   }
 
   def run() = {
-    val instance = Instance.newInstance()
-    instance.getOnInstance // inferred phantom evidence parameter =::= is erased
-    instance.getOnInstance.getOffInstance.getOnInstance.getOffInstance // all inferred phantom evidence parameters =::= are erased
+    val inst = Instance.newInstance()
+    inst.getOnInstance // inferred phantom evidence parameter =::= is erased
+    inst.getOnInstance.getOffInstance.getOnInstance.getOffInstance // all inferred phantom evidence parameters =::= are erased
   }
 
 }

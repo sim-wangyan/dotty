@@ -2,7 +2,7 @@ package dotty.tools
 package dotc
 package reporting
 
-import java.io.{ PrintStream, PrintWriter, File => JFile, FileOutputStream }
+import java.io.{ PrintStream, PrintWriter, File => JFile, FileOutputStream, StringWriter }
 import java.text.SimpleDateFormat
 import java.util.Date
 import core.Decorators._
@@ -26,7 +26,11 @@ extends Reporter with UniqueMessagePositions with HideNonSensicalMessages with M
   protected final val _messageBuf = mutable.ArrayBuffer.empty[String]
   final def messages: Iterator[String] = _messageBuf.iterator
 
-  private[this] var _didCrash = false
+  protected final val _consoleBuf = new StringWriter
+  protected final val _consoleReporter = new ConsoleReporter(null, new PrintWriter(_consoleBuf))
+  final def consoleOutput: String = _consoleBuf.toString
+
+  private var _didCrash = false
   final def compilerCrashed: Boolean = _didCrash
 
   protected final def inlineInfo(pos: SourcePosition)(implicit ctx: Context): String =
@@ -63,6 +67,7 @@ extends Reporter with UniqueMessagePositions with HideNonSensicalMessages with M
   }
 
   override def doReport(m: MessageContainer)(implicit ctx: Context): Unit = {
+
     // Here we add extra information that we should know about the error message
     val extra = m.contained() match {
       case pm: PatternMatchExhaustivity => s": ${pm.uncovered}"
@@ -72,6 +77,7 @@ extends Reporter with UniqueMessagePositions with HideNonSensicalMessages with M
     m match {
       case m: Error => {
         _errorBuf.append(m)
+        _consoleReporter.doReport(m)
         printMessageAndPos(m, extra)
       }
       case m =>
@@ -81,10 +87,10 @@ extends Reporter with UniqueMessagePositions with HideNonSensicalMessages with M
 }
 
 object TestReporter {
-  private[this] var outFile: JFile = _
-  private[this] var logWriter: PrintWriter = _
+  private var outFile: JFile = _
+  private var logWriter: PrintWriter = _
 
-  private[this] def initLog() = if (logWriter eq null) {
+  private def initLog() = if (logWriter eq null) {
     val date = new Date
     val df0 = new SimpleDateFormat("yyyy-MM-dd")
     val df1 = new SimpleDateFormat("yyyy-MM-dd-'T'HH-mm-ss")

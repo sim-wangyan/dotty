@@ -30,6 +30,7 @@ package scalaShadowing
  *
  *   - [[Scala2              `Scala2`]               backwards compatibility mode for Scala2
  *   - [[noAtoTupling        `noAutoTupling`]]       disable auto-tupling
+ *   - [[strictEquality      `strictEquality`]]      enable strick equality
  *
  *  @groupname production   Language Features
  *  @groupname experimental Experimental Language Features
@@ -61,7 +62,7 @@ object language {
    *
    *  @group production
    */
-  @volatile implicit lazy val dynamics: dynamics = languageFeature.dynamics
+  implicit lazy val dynamics: dynamics = languageFeature.dynamics
 
   /** Only where enabled, postfix operator notation `(expr op)` will be allowed.
    *
@@ -72,7 +73,7 @@ object language {
    *
    *  @group production
    */
-  @volatile implicit lazy val postfixOps: postfixOps = languageFeature.postfixOps
+  implicit lazy val postfixOps: postfixOps = languageFeature.postfixOps
 
   /** Only where enabled, accesses to members of structural types that need
    *  reflection are supported. Reminder: A structural type is a type of the form
@@ -90,10 +91,12 @@ object language {
    *
    *  @group production
    */
-  @volatile implicit lazy val reflectiveCalls: reflectiveCalls = languageFeature.reflectiveCalls
+  implicit lazy val reflectiveCalls: reflectiveCalls = languageFeature.reflectiveCalls
 
-  /** Only where enabled, definitions of implicit conversions are allowed. An
-   *  implicit conversion is an implicit value of unary function type `A => B`,
+  /** Only where enabled, definitions of legacy implicit conversions and certain uses
+   *  of implicit conversions are allowed.
+   *
+   *  A legacy implicit conversion is an implicit value of unary function type `A => B`,
    *  or an implicit method that has in its first parameter section a single,
    *  non-implicit parameter. Examples:
    *
@@ -103,21 +106,40 @@ object language {
    *     implicit def listToX(xs: List[T])(implicit f: T => X): X = ...
    *  }}}
    *
-   *  implicit values of other types are not affected, and neither are implicit
-   *  classes.
+   *  Implicit values of other types are not affected, and neither are implicit
+   *  classes. In particular, given instances of the scala.Conversion class can be
+   *  defined without having to import the language feature.
+   *
+   *  The language import is also required to enable _uses_ of implicit conversions
+   *  unless the conversion in question is co-defined with the type to which it maps.
+   *  Co-defined means: defined in the companion object of the class of the result type.
+   *  Examples:
+   *
+   *  {{{
+   *      class A
+   *      class B
+   *      object B {
+   *        given a2b : Conversion[A, B] { ... }
+   *      }
+   *      object C {
+   *        given b2a : Conversion[B, A] { ... }
+   *      }
+   *      import given B._
+   *      import given C._
+   *      val x: A = new B     // language import required
+   *      val x: B = new A     // no import necessary since a2b is co-defined with B
+   *  }}}
    *
    *  '''Why keep the feature?''' Implicit conversions are central to many aspects
    *  of Scala’s core libraries.
    *
    *  '''Why control it?''' Implicit conversions are known to cause many pitfalls
-   *  if over-used. And there is a tendency to over-use them because they look
-   *  very powerful and their effects seem to be easy to understand. Also, in
-   *  most situations using implicit parameters leads to a better design than
-   *  implicit conversions.
+   *  if over-used. This holds in particular for implicit conversions defined after
+   *  the fact between unrelated types.
    *
    *  @group production
    */
-  @volatile implicit lazy val implicitConversions: implicitConversions = languageFeature.implicitConversions
+  implicit lazy val implicitConversions: implicitConversions = languageFeature.implicitConversions
 
   /** Only where this flag is enabled, higher-kinded types can be written.
    *
@@ -140,7 +162,7 @@ object language {
    *
    *  @group production
    */
-  @volatile implicit lazy val higherKinds: higherKinds = languageFeature.higherKinds
+  implicit lazy val higherKinds: higherKinds = languageFeature.higherKinds
 
   /** Only where enabled, existential types that cannot be expressed as wildcard
    *  types can be written and are allowed in inferred types of values or return
@@ -158,7 +180,7 @@ object language {
    *
    *  @group production
    */
-  @volatile implicit lazy val existentials: existentials = languageFeature.existentials
+  implicit lazy val existentials: existentials = languageFeature.existentials
 
   /** The experimental object contains features that have been recently added but have not
    *  been thoroughly tested in production yet.
@@ -187,15 +209,33 @@ object language {
      *  '''Why control it?''' For their very power, macros can lead to code that is hard
      *  to debug and understand.
      */
-    @volatile implicit lazy val macros: macros = languageFeature.experimental.macros
+    implicit lazy val macros: macros = languageFeature.experimental.macros
   }
 
   /** Where imported, a backwards compatibility mode for Scala2 is enabled */
-  object Scala2
+  object Scala2Compat
 
   /** Where imported, auto-tupling is disabled */
   object noAutoTupling
 
-  /* Where imported loose equality using eqAny is disabled */
+  /** Where imported, loose equality using eqAny is disabled */
   object strictEquality
+
+  /** Where imported, ad hoc extensions of non-open classes in other
+   *  compilation units are allowed.
+   *
+   *  '''Why control the feature?''' Ad-hoc extensions should usually be avoided
+   *  since they typically cannot reply on an "internal" contract between a class
+   *  and its extensions. Only open classes need to specify such a contract.
+   *  Ad-hoc extensions might break for future versions of the extended class,
+   *  since the extended class is free to change its implementation without
+   *  being constrained by an internal contract.
+   *
+   *  '''Why allow it?''' An ad-hoc extension can sometimes be necessary,
+   *  for instance when mocking a class in a testing framework, or to work
+   *  around a bug or missing feature in the original class. Nevertheless,
+   *  such extensions should be limited in scope and clearly documented.
+   *  That's why the language import is required for them.
+   */
+  object adhocExtensions
 }

@@ -12,13 +12,16 @@ class SetRootTree extends Phase {
   override def isRunnable(implicit ctx: Context) =
     super.isRunnable && ctx.settings.YretainTrees.value
 
+  // Check no needed. Does not transform trees
+  override def isCheckable: Boolean = false
+
   override def run(implicit ctx: Context): Unit = {
     val tree = ctx.compilationUnit.tpdTree
     traverser.traverse(tree)
   }
 
   private def traverser = new tpd.TreeTraverser {
-    override def traverse(tree: tpd.Tree)(implicit ctx: Context): Unit = {
+    override def traverse(tree: tpd.Tree)(implicit ctx: Context): Unit =
       tree match {
         case pkg: tpd.PackageDef =>
           traverseChildren(pkg)
@@ -35,7 +38,6 @@ class SetRootTree extends Phase {
         case _ =>
           ()
       }
-    }
   }
 }
 

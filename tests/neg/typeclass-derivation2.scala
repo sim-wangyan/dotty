@@ -101,16 +101,23 @@ object TypeLevel {
   enum Shape {
 
     /** A sum with alternative types `Alts` */
-    case Cases[Alts <: Tuple]
+    case Cases[Alts <: Tuple]()
 
     /** A product type `T` with element types `Elems` */
-    case Case[T, Elems <: Tuple]
+    case Case[T, Elems <: Tuple]()
   }
 
   /** Every generic derivation starts with a typeclass instance of this type.
    *  It informs that type `T` has shape `S` and also implements runtime reflection on `T`.
    */
   abstract class Shaped[T, S <: Shape] extends Reflected[T]
+
+  // substitute for erasedValue that allows precise matching
+  final abstract class Type[-A, +B]
+  type Subtype[t] = Type[_, t]
+  type Supertype[t] = Type[t, _]
+  type Exactly[t] = Type[t, t]
+  erased def typeOf[T]: Type[T, T] = ???
 }
 
 // An algebraic datatype
@@ -203,10 +210,10 @@ trait Show[T] {
   def show(x: T): String
 }
 object Show {
-  import scala.compiletime.erasedValue
+  import scala.compiletime.{erasedValue, error, summonFrom}
   import TypeLevel._
 
-  inline def tryShow[T](x: T): String = implicit match {
+  inline def tryShow[T](x: T): String = summonFrom {
     case s: Show[T] => s.show(x)
   }
 
@@ -229,9 +236,14 @@ object Show {
   inline def showCases[T, Alts <: Tuple](r: Reflected[T], x: T): String =
     inline erasedValue[Alts] match {
       case _: (Shape.Case[alt, elems] *: alts1) =>
-        x match {
-          case x: `alt` => showCase[T, elems](r, x)
-          case _ => showCases[T, alts1](r, x)
+        inline typeOf[alt] match {
+          case _: Subtype[T] =>
+            x match {
+              case x: `alt` => showCase[T, elems](r, x)
+              case _ => showCases[T, alts1](r, x)
+            }
+          case _ =>
+            error("invalid call to showCases: one of Alts is not a subtype of T")
         }
       case _: Unit =>
         throw new MatchError(x)

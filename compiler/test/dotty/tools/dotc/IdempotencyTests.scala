@@ -16,6 +16,7 @@ import vulpix._
 class IdempotencyTests extends ParallelTesting {
   import TestConfiguration._
   import IdempotencyTests._
+  import CompilationTest.aggregateTests
 
   // Test suite configuration --------------------------------------------------
 
@@ -24,57 +25,44 @@ class IdempotencyTests extends ParallelTesting {
   def safeMode = Properties.testsSafeMode
   def isInteractive = SummaryReport.isInteractive
   def testFilter = Properties.testsFilter
+  def updateCheckFiles: Boolean = Properties.testsUpdateCheckfile
 
   @Category(Array(classOf[SlowTests]))
   @Test def idempotency: Unit = {
     implicit val testGroup: TestGroup = TestGroup("idempotency")
     val opt = defaultOptions
 
-    def sourcesFrom(dir: Path) = CompilationTests.sources(Files.walk(dir))
-
-    val strawmanSources = sourcesFrom(Paths.get("collection-strawman/collections/src/main"))
-    val strawmanSourcesSorted = strawmanSources.sorted
-    val strawmanSourcesRevSorted = strawmanSourcesSorted.reverse
-
-    val posIdempotency = {
-      compileFilesInDir("tests/pos", opt)(TestGroup("idempotency/posIdempotency1")) +
-      compileFilesInDir("tests/pos", opt)(TestGroup("idempotency/posIdempotency2"))
-    }
+    val posIdempotency = aggregateTests(
+      compileFilesInDir("tests/pos", opt)(TestGroup("idempotency/posIdempotency1")),
+      compileFilesInDir("tests/pos", opt)(TestGroup("idempotency/posIdempotency2")),
+    )
 
     val orderIdempotency = {
-      (for {
-        testDir <- new JFile("tests/order-idempotency").listFiles() if testDir.isDirectory
-      } yield {
-        val sources = sourcesFrom(testDir.toPath)
-        compileList(testDir.getName, sources, opt)(TestGroup("idempotency/orderIdempotency1")) +
-        compileList(testDir.getName, sources.reverse, opt)(TestGroup("idempotency/orderIdempotency2"))
-      }).reduce(_ + _)
-    }
-
-    val strawmanIdempotency = {
-      compileList("strawman0", strawmanSources, opt) +
-      compileList("strawman1", strawmanSources, opt) +
-      compileList("strawman2", strawmanSourcesSorted, opt) +
-      compileList("strawman3", strawmanSourcesRevSorted, opt)
+      val tests =
+        for {
+          testDir <- new JFile("tests/order-idempotency").listFiles() if testDir.isDirectory
+        } yield {
+          val sources = TestSources.sources(testDir.toPath)
+          aggregateTests(
+            compileList(testDir.getName, sources, opt)(TestGroup("idempotency/orderIdempotency1")),
+            compileList(testDir.getName, sources.reverse, opt)(TestGroup("idempotency/orderIdempotency2"))
+          )
+        }
+      aggregateTests(tests: _*)
     }
 
     def check(name: String) = {
       val files = List(s"tests/idempotency/$name.scala", "tests/idempotency/IdempotencyCheck.scala")
       compileList(name, files, defaultOptions)(TestGroup("idempotency/check"))
     }
-    val allChecks = {
-      check("CheckOrderIdempotency") +
+    val allChecks = aggregateTests(
+      check("CheckOrderIdempotency"),
       // Disabled until strawman is fixed
-      // check("CheckStrawmanIdempotency") +
+      // check("CheckStrawmanIdempotency"),
       check("CheckPosIdempotency")
-    }
+    )
 
-    val allTests = {
-      // Disabled until strawman is fixed
-      // strawmanIdempotency +
-      orderIdempotency +
-      posIdempotency
-    }
+    val allTests = aggregateTests(orderIdempotency, posIdempotency)
 
     val tests = allTests.keepOutput.checkCompile()
     allChecks.checkRuns()

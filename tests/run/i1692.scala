@@ -8,13 +8,20 @@ class LazyNullable(a: => Int) {
   lazy val l1 = b // null out b
 
   private[this] val c = "C"
-  @volatile lazy val l2 = c // null out c
+  lazy val l2 = c // null out c
 
   private[this] val d = "D"
   lazy val l3 = d + d // null out d (Scalac require single use?)
 
   private [this] val e = "E"
   lazy val l4 = try e finally () // null out e
+
+  private val eInf = "E" // still nullable because private[this] is inferred
+  lazy val l4Inf = eInf
+
+  private[this] val i = "I"
+  // null out i even though the try ends up lifted, because the LazyVals phase runs before the LiftTry phase
+  lazy val l5 = try i catch { case e: Exception => () }
 }
 
 object LazyNullable2 {
@@ -35,9 +42,6 @@ class LazyNotNullable {
   private[this] lazy val d = "D" // not nullable because lazy
   lazy val l3 = d
 
-  private val e = "E" // not nullable because not private[this]
-  lazy val l4 = e
-
   private[this] val f = "F" // not nullable because used in mutiple lazy vals
   lazy val l5 = f
   lazy val l6 = f
@@ -51,9 +55,6 @@ class LazyNotNullable {
     lazy val l8 = h
   }
 
-  private[this] val i = "I"
-  // not nullable because try is lifted, so i is used outside lazy val initializer
-  lazy val l9 = try i catch { case e: Exception => () } 
 }
 
 trait LazyTrait {
@@ -97,6 +98,12 @@ object Test {
     assert(lz.l4 == "E")
     assertNull("e")
 
+    assert(lz.l4Inf == "E")
+    assertNull("eInf")
+
+    assert(lz.l5 == "I")
+    assertNull("i")
+
     assert(LazyNullable2.l0 == "A")
     assert(readField("a", LazyNullable2) == null)
   }
@@ -120,9 +127,6 @@ object Test {
 
     assert(lz.l3 == "D")
 
-    assert(lz.l4 == "E")
-    assertNotNull("e")
-
     assert(lz.l5 == "F")
     assert(lz.l6 == "F")
     assertNotNull("f")
@@ -133,9 +137,6 @@ object Test {
     val inner = new lz.Inner
     assert(inner.l8 == "H")
     assertNotNull("LazyNotNullable$$h") // fragile: test will break if compiler generated names change
-
-    assert(lz.l9 == "I")
-    assertNotNull("i")
 
     val fromTrait = new LazyTrait {}
     assert(fromTrait.l0 == "A")

@@ -1,8 +1,6 @@
-package dotty.tools
-package dotc
-package core
+package dotty.tools.dotc.core
 
-import tasty.TastyFormat
+import dotty.tools.tasty.TastyFormat
 
 /** The possible tags of a NameKind */
 object NameTags extends TastyFormat.NameTags {
@@ -35,6 +33,8 @@ object NameTags extends TastyFormat.NameTags {
 
   final val IMPLMETH = 32       // Used to define methods in implementation classes
                                 // (can probably be removed).
+
+  final val CACHE = 33          // Used as a cache for the rhs of an alias implicit.
 
   def nameTagToString(tag: Int): String = tag match {
     case UTF8 => "UTF8"

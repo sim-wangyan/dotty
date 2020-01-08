@@ -103,16 +103,23 @@ object TypeLevel {
   enum Shape {
 
     /** A sum with alternative types `Alts` */
-    case Cases[Alts <: Tuple]
+    case Cases[Alts <: Tuple]()
 
     /** A product type `T` with element types `Elems` */
-    case Case[T, Elems <: Tuple]
+    case Case[T, Elems <: Tuple]()
   }
 
   /** Every generic derivation starts with a typeclass instance of this type.
    *  It informs that type `T` has shape `S` and also implements runtime reflection on `T`.
    */
   abstract class Shaped[T, S <: Shape] extends Reflected[T]
+
+  // substitute for erasedValue that allows precise matching
+  final abstract class Type[-A, +B]
+  type Subtype[t] = Type[_, t]
+  type Supertype[t] = Type[t, _]
+  type Exactly[t] = Type[t, t]
+  erased def typeOf[T]: Type[T, T] = ???
 }
 
 // An algebraic datatype
@@ -217,10 +224,10 @@ trait Eq[T] {
 }
 
 object Eq {
-  import scala.compiletime.erasedValue
+  import scala.compiletime.{erasedValue, error, summonFrom}
   import TypeLevel._
 
-  inline def tryEql[T](x: T, y: T) = implicit match {
+  inline def tryEql[T](x: T, y: T) = summonFrom {
     case eq: Eq[T] => eq.eql(x, y)
   }
 
@@ -239,9 +246,14 @@ object Eq {
   inline def eqlCases[T, Alts <: Tuple](xm: Mirror, ym: Mirror, ordinal: Int, n: Int): Boolean =
     inline erasedValue[Alts] match {
       case _: (Shape.Case[alt, elems] *: alts1) =>
-        if (n == ordinal) eqlElems[elems](xm, ym, 0)
-        else eqlCases[T, alts1](xm, ym, ordinal, n + 1)
-     case _: Unit =>
+        inline typeOf[alt] match {
+          case _: Subtype[T] =>
+            if (n == ordinal) eqlElems[elems](xm, ym, 0)
+            else eqlCases[T, alts1](xm, ym, ordinal, n + 1)
+          case _ =>
+            error("invalid call to eqlCases: one of Alts is not a subtype of T")
+        }
+      case _: Unit =>
         false
     }
 
@@ -271,12 +283,12 @@ trait Pickler[T] {
 }
 
 object Pickler {
-  import scala.compiletime.{erasedValue, constValue}
+  import scala.compiletime.{erasedValue, constValue, error, summonFrom}
   import TypeLevel._
 
   def nextInt(buf: mutable.ListBuffer[Int]): Int = try buf.head finally buf.trimStart(1)
 
-  inline def tryPickle[T](buf: mutable.ListBuffer[Int], x: T): Unit = implicit match {
+  inline def tryPickle[T](buf: mutable.ListBuffer[Int], x: T): Unit = summonFrom {
     case pkl: Pickler[T] => pkl.pickle(buf, x)
   }
 
@@ -294,17 +306,22 @@ object Pickler {
   inline def pickleCases[T, Alts <: Tuple](r: Reflected[T], buf: mutable.ListBuffer[Int], x: T, n: Int): Unit =
     inline erasedValue[Alts] match {
       case _: (Shape.Case[alt, elems] *: alts1) =>
-        x match {
-          case x: `alt` =>
-            buf += n
-            pickleCase[T, elems](r, buf, x)
+        inline typeOf[alt] match {
+          case _: Subtype[T] =>
+            x match {
+              case x: `alt` =>
+                buf += n
+                pickleCase[T, elems](r, buf, x)
+              case _ =>
+                pickleCases[T, alts1](r, buf, x, n + 1)
+            }
           case _ =>
-            pickleCases[T, alts1](r, buf, x, n + 1)
+            error("invalid pickleCases call: one of Alts is not a subtype of T")
         }
       case _: Unit =>
     }
 
-  inline def tryUnpickle[T](buf: mutable.ListBuffer[Int]): T = implicit match {
+  inline def tryUnpickle[T](buf: mutable.ListBuffer[Int]): T = summonFrom {
     case pkl: Pickler[T] => pkl.unpickle(buf)
   }
 
@@ -362,10 +379,10 @@ trait Show[T] {
   def show(x: T): String
 }
 object Show {
-  import scala.compiletime.erasedValue
+  import scala.compiletime.{erasedValue, error, summonFrom}
   import TypeLevel._
 
-  inline def tryShow[T](x: T): String = implicit match {
+  inline def tryShow[T](x: T): String = summonFrom {
     case s: Show[T] => s.show(x)
   }
 
@@ -388,9 +405,15 @@ object Show {
   inline def showCases[T, Alts <: Tuple](r: Reflected[T], x: T): String =
     inline erasedValue[Alts] match {
       case _: (Shape.Case[alt, elems] *: alts1) =>
-        x match {
-          case x: `alt` => showCase[T, elems](r, x)
-          case _ => showCases[T, alts1](r, x)
+        inline typeOf[alt] match {
+          case _: Subtype[T] =>
+            x match {
+              case x: `alt` =>
+                showCase[T, elems](r, x)
+              case _ => showCases[T, alts1](r, x)
+            }
+          case _ =>
+            error("invalid call to showCases: one of Alts is not a subtype of T")
         }
       case _: Unit =>
         throw new MatchError(x)

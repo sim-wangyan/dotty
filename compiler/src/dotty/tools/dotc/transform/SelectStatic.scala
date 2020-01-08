@@ -25,11 +25,10 @@ class SelectStatic extends MiniPhase with IdentityDenotTransformer {
     def isStaticMember =
       (sym is Flags.Module) && sym.initial.maybeOwner.initial.isStaticOwner ||
       (sym is Flags.JavaStatic) ||
-      (sym.maybeOwner is Flags.ImplClass) ||
       sym.hasAnnotation(ctx.definitions.ScalaStaticAnnot)
     val isStaticRef = !sym.is(Package) && !sym.maybeOwner.is(Package) && isStaticMember
     val tree1 =
-      if (isStaticRef && !tree.qualifier.symbol.is(JavaModule) && !tree.qualifier.isType)
+      if (isStaticRef && !tree.qualifier.symbol.isAllOf(JavaModule) && !tree.qualifier.isType)
         Block(List(tree.qualifier), ref(sym))
       else tree
 
@@ -48,15 +47,12 @@ class SelectStatic extends MiniPhase with IdentityDenotTransformer {
     case _ => t
   }
 
-  override def transformApply(tree: tpd.Apply)(implicit ctx: Context): tpd.Tree = {
+  override def transformApply(tree: tpd.Apply)(implicit ctx: Context): tpd.Tree =
     normalize(tree)
-  }
 
-  override def transformTypeApply(tree: tpd.TypeApply)(implicit ctx: Context): tpd.Tree = {
+  override def transformTypeApply(tree: tpd.TypeApply)(implicit ctx: Context): tpd.Tree =
     normalize(tree)
-  }
 
-  override def transformClosure(tree: tpd.Closure)(implicit ctx: Context): tpd.Tree = {
+  override def transformClosure(tree: tpd.Closure)(implicit ctx: Context): tpd.Tree =
     normalize(tree)
-  }
 }

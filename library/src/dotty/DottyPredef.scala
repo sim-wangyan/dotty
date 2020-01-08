@@ -1,45 +1,24 @@
 package dotty
 
-import scala.forceInline
-
 object DottyPredef {
+  import compiletime.summonFrom
 
-  /** A class for implicit values that can serve as implicit conversions
-   *  The implicit resolution algorithm will act as if there existed
-   *  the additional implicit definition:
-   *
-   *    def $implicitConversion[T, U](x: T)(c: ImplicitConverter[T, U]): U = c(x)
-   *
-   *  However, the presence of this definition would slow down implicit search since
-   *  its outermost type matches any pair of types. Therefore, implicit search
-   *  contains a special case in `Implicits#discardForView` which emulates the
-   *  conversion in a more efficient way.
-   *
-   *  Note that this is a SAM class - function literals are automatically converted
-   *  to `ImplicitConverter` values.
-   *
-   *  Also note that in bootstrapped dotty, `Predef.<:<` should inherit from
-   *  `ImplicitConverter`. This would cut the number of special cases in
-   *  `discardForView` from two to one.
-   */
-  abstract class ImplicitConverter[-T, +U] extends Function1[T, U]
-
-  @forceInline final def assert(assertion: => Boolean, message: => Any): Unit = {
+  inline final def assert(assertion: => Boolean, message: => Any): Unit = {
     if (!assertion)
       assertFail(message)
   }
 
-  @forceInline final def assert(assertion: => Boolean): Unit = {
+  inline final def assert(assertion: => Boolean) <: Unit = {
     if (!assertion)
       assertFail()
   }
 
-  def assertFail(): Unit = throw new java.lang.AssertionError("assertion failed")
-  def assertFail(message: => Any): Unit = throw new java.lang.AssertionError("assertion failed: " + message)
+  def assertFail(): Nothing = throw new java.lang.AssertionError("assertion failed")
+  def assertFail(message: => Any): Nothing = throw new java.lang.AssertionError("assertion failed: " + message)
 
-  @forceInline final def implicitly[T](implicit ev: T): T = ev
+  inline final def implicitly[T](implicit ev: T): T = ev
 
-  @forceInline def locally[T](body: => T): T = body
+  inline def locally[T](body: => T): T = body
 
   /**
    * Retrieve the single value of a type with a unique inhabitant.
@@ -54,5 +33,22 @@ object DottyPredef {
    * }}}
    * @group utilities
    */
-  @forceInline def valueOf[T](implicit vt: ValueOf[T]): T = vt.value
+  inline def valueOf[T]: T = summonFrom {
+    case ev: ValueOf[T] => ev.value
+  }
+
+  inline def summon[T](given x: T): x.type = x
+
+  // Extension methods for working with explicit nulls
+
+  /** Strips away the nullability from a value.
+   *  e.g.
+   *    val s1: String|Null = "hello"
+   *    val s: String = s1.nn
+   *
+   *  Note that `.nn` performs a checked cast, so if invoked on a null value it'll throw an NPE.
+   */
+  def[T] (x: T|Null) nn: x.type & T =
+    if (x == null) throw new NullPointerException("tried to cast away nullability, but value is null")
+    else x.asInstanceOf[x.type & T]
 }

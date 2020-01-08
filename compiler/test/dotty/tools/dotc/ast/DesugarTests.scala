@@ -17,12 +17,12 @@ class DesugarTests extends DottyTest {
         sym.is(Synthetic) ||
         // or be a constructor:
         sym.name == nme.CONSTRUCTOR,
-        s"found: $sym (${sym.flags})"
+        s"found: $sym (${sym.flagsString})"
       )
   }
 
   @Test def caseClassHasCorrectMembers: Unit =
-    checkCompile("frontend", "case class Foo(x: Int, y: String)") { (tree, context) =>
+    checkCompile("typer", "case class Foo(x: Int, y: String)") { (tree, context) =>
       implicit val ctx = context
       val ccTree = tree.find(tree => tree.symbol.name == typeName("Foo")).get
       val List(_, foo) = defPath(ccTree.symbol, tree).map(_.symbol.info)
@@ -37,7 +37,7 @@ class DesugarTests extends DottyTest {
     }
 
   @Test def caseClassCompanionHasCorrectMembers: Unit =
-    checkCompile("frontend", "case class Foo(x: Int, y: String)") { (tree, context) =>
+    checkCompile("typer", "case class Foo(x: Int, y: String)") { (tree, context) =>
       implicit val ctx = context
       val ccTree = tree.find(tree => tree.symbol.name == termName("Foo")).get
       val List(_, foo) = defPath(ccTree.symbol, tree).map(_.symbol.info)

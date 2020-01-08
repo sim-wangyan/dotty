@@ -13,6 +13,7 @@ abstract class SimpleIdentityMap[K <: AnyRef, +V >: Null <: AnyRef] extends (K =
   def contains(k: K): Boolean = apply(k) != null
   def mapValuesNow[V1 >: V <: AnyRef](f: (K, V1) => V1): SimpleIdentityMap[K, V1]
   def foreachBinding(f: (K, V) => Unit): Unit
+  def forallBinding(f: (K, V) => Boolean): Boolean
   def map2[T](f: (K, V) => T): List[T] = {
     val buf = new ListBuffer[T]
     foreachBinding((k, v) => buf += f(k, v))
@@ -37,6 +38,7 @@ object SimpleIdentityMap {
     def updated[V1 >: Null <: AnyRef](k: AnyRef, v: V1) = new Map1(k, v)
     def mapValuesNow[V1 >: Null <: AnyRef](f: (AnyRef, V1) => V1) = this
     def foreachBinding(f: (AnyRef, Null) => Unit) = ()
+    def forallBinding(f: (AnyRef, Null) => Boolean) = true
   }
 
   def Empty[K <: AnyRef]: SimpleIdentityMap[K, Null] = myEmpty.asInstanceOf[SimpleIdentityMap[K, Null]]
@@ -57,6 +59,7 @@ object SimpleIdentityMap {
       if (v1 eq w1) this else new Map1(k1, w1)
     }
     def foreachBinding(f: (K, V) => Unit): Unit = f(k1, v1)
+    def forallBinding(f: (K, V) => Boolean): Boolean = f(k1, v1)
   }
 
   class Map2[K <: AnyRef, +V >: Null <: AnyRef] (k1: K, v1: V, k2: K, v2: V) extends SimpleIdentityMap[K, V] {
@@ -79,6 +82,7 @@ object SimpleIdentityMap {
       else new Map2(k1, w1, k2, w2)
     }
     def foreachBinding(f: (K, V) => Unit): Unit = { f(k1, v1); f(k2, v2) }
+    def forallBinding(f: (K, V) => Boolean): Boolean = f(k1, v1) && f(k2, v2)
   }
 
   class Map3[K <: AnyRef, +V >: Null <: AnyRef] (k1: K, v1: V, k2: K, v2: V, k3: K, v3: V) extends SimpleIdentityMap[K, V] {
@@ -104,6 +108,7 @@ object SimpleIdentityMap {
       else new Map3(k1, w1, k2, w2, k3, w3)
     }
     def foreachBinding(f: (K, V) => Unit): Unit = { f(k1, v1); f(k2, v2); f(k3, v3) }
+    def forallBinding(f: (K, V) => Boolean): Boolean = f(k1, v1) && f(k2, v2) && f(k3, v3)
   }
 
   class Map4[K <: AnyRef, +V >: Null <: AnyRef] (k1: K, v1: V, k2: K, v2: V, k3: K, v3: V, k4: K, v4: V) extends SimpleIdentityMap[K, V] {
@@ -132,6 +137,7 @@ object SimpleIdentityMap {
       else new Map4(k1, w1, k2, w2, k3, w3, k4, w4)
     }
     def foreachBinding(f: (K, V) => Unit): Unit = { f(k1, v1); f(k2, v2); f(k3, v3); f(k4, v4) }
+    def forallBinding(f: (K, V) => Boolean): Boolean = f(k1, v1) && f(k2, v2) && f(k3, v3) && f(k4, v4)
   }
 
   class MapMore[K <: AnyRef, +V >: Null <: AnyRef](bindings: Array[AnyRef]) extends SimpleIdentityMap[K, V] {
@@ -153,19 +159,21 @@ object SimpleIdentityMap {
     def remove(k: K): SimpleIdentityMap[K, V] = {
       var i = 0
       while (i < bindings.length) {
-        if (bindings(i) eq k) return {
-          if (size == CompactifyThreshold) {
-            var m: SimpleIdentityMap[K, V] = Empty[K]
-            for (j <- 0 until bindings.length by 2)
-              if (j != i) m = m.updated(key(j), value(j))
-            m
-          } else {
-            val bindings1 = new Array[AnyRef](bindings.length - 2)
-            System.arraycopy(bindings, 0, bindings1, 0, i)
-            System.arraycopy(bindings, i + 2, bindings1, i, bindings1.length - i)
-            new MapMore(bindings1)
+        if (bindings(i) eq k)
+          return {
+            if (size == CompactifyThreshold) {
+              var m: SimpleIdentityMap[K, V] = Empty[K]
+              for (j <- 0 until bindings.length by 2)
+                if (j != i) m = m.updated(key(j), value(j))
+              m
+            }
+            else {
+              val bindings1 = new Array[AnyRef](bindings.length - 2)
+              System.arraycopy(bindings, 0, bindings1, 0, i)
+              System.arraycopy(bindings, i + 2, bindings1, i, bindings1.length - i)
+              new MapMore(bindings1)
+            }
           }
-        }
         i += 2
       }
       this
@@ -222,6 +230,16 @@ object SimpleIdentityMap {
         f(key(i), value(i))
         i += 2
       }
+    }
+
+    def forallBinding(f: (K, V) => Boolean): Boolean = {
+      var i = 0
+      while (i < bindings.length) {
+        if (!f(key(i), value(i)))
+          return false
+        i += 2
+      }
+      return true
     }
   }
 }

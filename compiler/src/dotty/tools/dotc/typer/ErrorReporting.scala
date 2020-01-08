@@ -22,9 +22,17 @@ object ErrorReporting {
   def errorTree(tree: untpd.Tree, msg: => Message)(implicit ctx: Context): tpd.Tree =
     errorTree(tree, msg, tree.sourcePos)
 
+  def errorTree(tree: untpd.Tree, msg: TypeError, pos: SourcePosition)(implicit ctx: Context): tpd.Tree =
+    tree.withType(errorType(msg, pos))
+
   def errorType(msg: => Message, pos: SourcePosition)(implicit ctx: Context): ErrorType = {
     ctx.error(msg, pos)
     ErrorType(msg)
+  }
+
+  def errorType(ex: TypeError, pos: SourcePosition)(implicit ctx: Context): ErrorType = {
+    ctx.error(ex, pos)
+    ErrorType(ex.toMessage)
   }
 
   def wrongNumberOfTypeArgs(fntpe: Type, expectedArgs: List[ParamInfo], actual: List[untpd.Tree], pos: SourcePosition)(implicit ctx: Context): ErrorType =
@@ -47,18 +55,18 @@ object ErrorReporting {
           case _: WildcardType | _: IgnoredProto => ""
           case tp => em" and expected result type $tp"
         }
-        em"arguments (${tp.typedArgs.tpes}%, %)$result"
+        em"arguments (${tp.typedArgs().tpes}%, %)$result"
       case _ =>
         em"expected type $tp"
     }
 
     def anonymousTypeMemberStr(tpe: Type): String = {
       val kind = tpe match {
-          case _: TypeBounds => "type with bounds"
-          case _: MethodOrPoly => "method"
-          case _ => "value of type"
-        }
-        em"$kind $tpe"
+        case _: TypeBounds => "type with bounds"
+        case _: MethodOrPoly => "method"
+        case _ => "value of type"
+      }
+      em"$kind $tpe"
     }
 
     def overloadedAltsStr(alts: List[SingleDenotation]): String =
@@ -81,7 +89,6 @@ object ErrorReporting {
       if (tree.tpe.widen.exists)
         i"${exprStr(tree)} does not take ${kind}parameters"
       else {
-        new FatalError("").printStackTrace()
         i"undefined: $tree # ${tree.uniqueId}: ${tree.tpe.toString} at ${ctx.phase}"
       }
 
@@ -128,8 +135,8 @@ object ErrorReporting {
           case tp: TypeParamRef =>
             constraint.entry(tp) match {
               case bounds: TypeBounds =>
-                if (variance < 0) apply(constraint.fullUpperBound(tp))
-                else if (variance > 0) apply(constraint.fullLowerBound(tp))
+                if (variance < 0) apply(ctx.typeComparer.fullUpperBound(tp))
+                else if (variance > 0) apply(ctx.typeComparer.fullLowerBound(tp))
                 else tp
               case NoType => tp
               case instType => apply(instType)
@@ -143,7 +150,15 @@ object ErrorReporting {
       val expected1 = reported(expected)
       val (found2, expected2) =
         if (found1 frozen_<:< expected1) (found, expected) else (found1, expected1)
-      TypeMismatch(found2, expected2, whyNoMatchStr(found, expected), postScript)
+      val postScript1 =
+        if !postScript.isEmpty
+           || expected.isRef(defn.AnyClass)
+           || expected.isRef(defn.AnyValClass)
+           || expected.isRef(defn.ObjectClass)
+           || defn.isBottomType(found)
+        then postScript
+        else ctx.typer.importSuggestionAddendum(ViewProto(found.widen, expected))
+      TypeMismatch(found2, expected2, whyNoMatchStr(found, expected), postScript1)
     }
 
     /** Format `raw` implicitNotFound or implicitAmbiguous argument, replacing
@@ -157,6 +172,10 @@ object ErrorReporting {
       }
       """\$\{\w*\}""".r.replaceSomeIn(raw, m => translate(m.matched.drop(2).init))
     }
+
+    def rewriteNotice: String =
+      if (ctx.scala2CompatMode) "\nThis patch can be inserted automatically under -rewrite."
+      else ""
   }
 
   def err(implicit ctx: Context): Errors = new Errors

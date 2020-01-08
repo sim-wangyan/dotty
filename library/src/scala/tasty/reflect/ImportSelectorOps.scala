@@ -3,19 +3,37 @@ package reflect
 
 trait ImportSelectorOps extends Core {
 
-  val SimpleSelector: SimpleSelectorModule
-  abstract class SimpleSelectorModule {
-    def unapply(importSelector: ImportSelector)(implicit ctx: Context): Option[Id]
+  given simpleSelectorOps: extension (self: SimpleSelector) {
+    def selection(given ctx: Context): Id =
+      internal.SimpleSelector_selection(self)
   }
 
-  val RenameSelector: RenameSelectorModule
-  abstract class RenameSelectorModule {
-    def unapply(importSelector: ImportSelector)(implicit ctx: Context): Option[(Id, Id)]
+  given (given Context): IsInstanceOf[SimpleSelector] = internal.isInstanceOfSimpleSelector
+
+  object SimpleSelector
+    def unapply(x: SimpleSelector)(given ctx: Context): Option[Id] = Some(x.selection)
+
+  given renameSelectorOps: extension (self: RenameSelector) {
+    def from(given ctx: Context): Id =
+      internal.RenameSelector_from(self)
+
+    def to(given ctx: Context): Id =
+      internal.RenameSelector_to(self)
   }
 
-  val OmitSelector: OmitSelectorModule
-  abstract class OmitSelectorModule {
-    def unapply(importSelector: ImportSelector)(implicit ctx: Context): Option[Id]
+  given (given Context): IsInstanceOf[RenameSelector] = internal.isInstanceOfRenameSelector
+
+  object RenameSelector
+    def unapply(x: RenameSelector)(given ctx: Context): Option[(Id, Id)] = Some((x.from, x.to))
+
+  given omitSelectorOps: extension (self: OmitSelector) {
+    def omitted(given ctx: Context): Id =
+      internal.SimpleSelector_omitted(self)
   }
+
+  given (given Context): IsInstanceOf[OmitSelector] = internal.isInstanceOfOmitSelector
+
+  object OmitSelector
+    def unapply(x: OmitSelector)(given ctx: Context): Option[Id] = Some(x.omitted)
 
 }

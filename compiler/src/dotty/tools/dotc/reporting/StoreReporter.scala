@@ -20,7 +20,7 @@ import diagnostic.messages._
   */
 class StoreReporter(outer: Reporter) extends Reporter {
 
-  protected[this] var infos: mutable.ListBuffer[MessageContainer] = null
+  protected var infos: mutable.ListBuffer[MessageContainer] = null
 
   def doReport(m: MessageContainer)(implicit ctx: Context): Unit = {
     typr.println(s">>>> StoredError: ${m.message}") // !!! DEBUG
@@ -30,6 +30,9 @@ class StoreReporter(outer: Reporter) extends Reporter {
 
   override def hasUnreportedErrors: Boolean =
     outer != null && infos != null && infos.exists(_.isInstanceOf[Error])
+
+  override def hasStickyErrors: Boolean =
+    infos != null && infos.exists(_.isInstanceOf[StickyError])
 
   override def removeBufferedMessages(implicit ctx: Context): List[MessageContainer] =
     if (infos != null) try infos.toList finally infos = null

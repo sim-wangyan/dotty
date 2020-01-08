@@ -80,7 +80,7 @@ class Memoize extends MiniPhase with IdentityDenotTransformer { thisPhase =>
       ctx.newSymbol(
         owner = ctx.owner,
         name  = sym.name.asTermName.fieldName,
-        flags = Private | (if (sym is StableRealizable) EmptyFlags else Mutable),
+        flags = Private | (if (sym.is(StableRealizable)) EmptyFlags else Mutable),
         info  = fieldType,
         coord = tree.span
       ).withAnnotationsCarrying(sym, defn.FieldMetaAnnot)
@@ -105,15 +105,14 @@ class Memoize extends MiniPhase with IdentityDenotTransformer { thisPhase =>
 
     val NoFieldNeeded = Lazy | Deferred | JavaDefined | (if (ctx.settings.YnoInline.value) EmptyFlags else Inline)
 
-    def erasedBottomTree(sym: Symbol) = {
-      if (sym eq defn.NothingClass) Throw(Literal(Constant(null)))
-      else if (sym eq defn.NullClass) Literal(Constant(null))
+    def erasedBottomTree(sym: Symbol) =
+      if (sym eq defn.NothingClass) Throw(nullLiteral)
+      else if (sym eq defn.NullClass) nullLiteral
       else if (sym eq defn.BoxedUnitClass) ref(defn.BoxedUnit_UNIT)
       else {
-        assert(false, sym + " has no erased bottom tree")
+        assert(false, s"$sym has no erased bottom tree")
         EmptyTree
       }
-    }
 
     if (sym.is(Accessor, butNot = NoFieldNeeded)) {
       val field = sym.field.orElse(newField).asTerm
@@ -136,16 +135,16 @@ class Memoize extends MiniPhase with IdentityDenotTransformer { thisPhase =>
         addAnnotations(fieldDef.denot)
         removeAnnotations(sym)
         Thicket(fieldDef, getterDef)
-      } else if (sym.isSetter) {
+      }
+      else if (sym.isSetter) {
         if (!sym.is(ParamAccessor)) { val Literal(Constant(())) = tree.rhs } // This is intended as an assertion
         field.setFlag(Mutable) // Necessary for vals mixed in from Scala2 traits
-        if (isErasableBottomField(tree.vparamss.head.head.tpt.tpe.classSymbol)) tree
-        else {
-          val initializer = Assign(ref(field), adaptToField(ref(tree.vparamss.head.head.symbol)))
-          val setterDef = cpy.DefDef(tree)(rhs = transformFollowingDeep(initializer)(ctx.withOwner(sym)))
-          removeAnnotations(sym)
-          setterDef
-        }
+        val initializer =
+          if (isErasableBottomField(tree.vparamss.head.head.tpt.tpe.classSymbol)) Literal(Constant(()))
+          else Assign(ref(field), adaptToField(ref(tree.vparamss.head.head.symbol)))
+        val setterDef = cpy.DefDef(tree)(rhs = transformFollowingDeep(initializer)(ctx.withOwner(sym)))
+        removeAnnotations(sym)
+        setterDef
       }
       else tree // curiously, some accessors from Scala2 have ' ' suffixes. They count as
                 // neither getters nor setters

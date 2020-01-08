@@ -80,7 +80,7 @@ object TypeApplications {
    *  and there are no other occurrences of `X` in the reduced type. In that case
    *  the refinement above is replaced by
    *
-   *        C[..., _ >: L <: H, ...]
+   *        C[..., ? >: L <: H, ...]
    *
    *  The `allReplaced` field indicates whether all occurrences of type lambda parameters
    *  in the reduced type have been replaced with arguments.
@@ -88,7 +88,7 @@ object TypeApplications {
    *  2. If Mode.AllowLambdaWildcardApply is not set:
    *  All `X` arguments are replaced by:
    *
-   *        _ >: L <: H
+   *        ? >: L <: H
    *
    *  Any other occurrence of `X` in `tycon` is replaced by `U`, if the
    *  occurrence of `X` in `tycon` is covariant, or nonvariant, or by `L`,
@@ -103,10 +103,10 @@ object TypeApplications {
    *  produce a higher-kinded application with a type lambda as type constructor.
    */
   class Reducer(tycon: TypeLambda, args: List[Type])(implicit ctx: Context) extends TypeMap {
-    private[this] var available = (0 until args.length).toSet
+    private var available = (0 until args.length).toSet
     var allReplaced: Boolean = true
     def hasWildcardArg(p: TypeParamRef): Boolean =
-      p.binder == tycon && args(p.paramNum).isInstanceOf[TypeBounds]
+      p.binder == tycon && isBounds(args(p.paramNum))
     def canReduceWildcard(p: TypeParamRef): Boolean =
       !ctx.mode.is(Mode.AllowLambdaWildcardApply) || available.contains(p.paramNum)
     def atNestedLevel(op: => Type): Type = {
@@ -129,6 +129,8 @@ object TypeApplications {
     def apply(t: Type): Type = t match {
       case t @ AppliedType(tycon, args1) if tycon.typeSymbol.isClass =>
         t.derivedAppliedType(apply(tycon), args1.mapConserve(applyArg))
+      case t @ RefinedType(parent, name, TypeAlias(info)) =>
+        t.derivedRefinedType(apply(parent), name, applyArg(info).bounds)
       case p: TypeParamRef if p.binder == tycon =>
         args(p.paramNum) match {
           case TypeBounds(lo, hi) =>
@@ -159,7 +161,8 @@ class TypeApplications(val self: Type) extends AnyVal {
    *  For a refinement type, the type parameters of its parent, dropping
    *  any type parameter that is-rebound by the refinement.
    */
-  final def typeParams(implicit ctx: Context): List[TypeParamInfo] = /*>|>*/ track("typeParams") /*<|<*/ {
+  final def typeParams(implicit ctx: Context): List[TypeParamInfo] = {
+    record("typeParams")
     def isTrivial(prefix: Type, tycon: Symbol) = prefix match {
       case prefix: ThisType => prefix.cls `eq` tycon.owner
       case NoPrefix => true
@@ -211,7 +214,10 @@ class TypeApplications(val self: Type) extends AnyVal {
 
   /** Is self type of kind "*"? */
   def hasSimpleKind(implicit ctx: Context): Boolean =
-    typeParams.isEmpty && !self.hasAnyKind
+    typeParams.isEmpty && !self.hasAnyKind || {
+      val alias = self.dealias
+      (alias ne self) && alias.hasSimpleKind
+    }
 
   /** If self type is higher-kinded, its result type, otherwise NoType.
    *  Note: The hkResult of an any-kinded type is again AnyKind.
@@ -324,7 +330,7 @@ class TypeApplications(val self: Type) extends AnyVal {
              !tparams.corresponds(hkParams)(_.paramVariance == _.paramVariance) &&
              tparams.corresponds(hkParams)(varianceConforms) =>
           HKTypeLambda(
-            (tparams, hkParams).zipped.map((tparam, hkparam) =>
+            tparams.lazyZip(hkParams).map((tparam, hkparam) =>
               tparam.paramName.withVariance(hkparam.paramVariance)))(
             tl => arg.paramInfos.map(_.subst(arg, tl).bounds),
             tl => arg.resultType.subst(arg, tl)
@@ -348,7 +354,8 @@ class TypeApplications(val self: Type) extends AnyVal {
    *  @param  self   = `T`
    *  @param  args   = `U1,...,Un`
    */
-  final def appliedTo(args: List[Type])(implicit ctx: Context): Type = /*>|>*/ track("appliedTo") /*<|<*/ {
+  final def appliedTo(args: List[Type])(implicit ctx: Context): Type = {
+    record("appliedTo")
     val typParams = self.typeParams
     val stripped = self.stripTypeVar
     val dealiased = stripped.safeDealias
@@ -356,7 +363,7 @@ class TypeApplications(val self: Type) extends AnyVal {
     else dealiased match {
       case dealiased: HKTypeLambda =>
         def tryReduce =
-          if (!args.exists(_.isInstanceOf[TypeBounds])) {
+          if (!args.exists(isBounds)) {
             val followAlias = Config.simplifyApplications && {
               dealiased.resType match {
                 case AppliedType(tyconBody, dealiasedArgs) =>
@@ -400,7 +407,7 @@ class TypeApplications(val self: Type) extends AnyVal {
       case dealiased: LazyRef =>
         LazyRef(c => dealiased.ref(c).appliedTo(args))
       case dealiased: WildcardType =>
-        WildcardType(dealiased.optBounds.appliedTo(args).bounds)
+        WildcardType(dealiased.optBounds.orElse(TypeBounds.empty).appliedTo(args).bounds)
       case dealiased: TypeRef if dealiased.symbol == defn.NothingClass =>
         dealiased
       case dealiased =>
@@ -435,7 +442,7 @@ class TypeApplications(val self: Type) extends AnyVal {
     case _ => if (self.isMatch) MatchAlias(self) else TypeAlias(self)
   }
 
-  /** Translate a type of the form From[T] to either To[T] or To[_ <: T] (if `wildcardArg` is set). Keep other types as they are.
+  /** Translate a type of the form From[T] to either To[T] or To[? <: T] (if `wildcardArg` is set). Keep other types as they are.
    *  `from` and `to` must be static classes, both with one type parameter, and the same variance.
    *  Do the same for by name types => From[T] and => To[T]
    */
@@ -457,7 +464,7 @@ class TypeApplications(val self: Type) extends AnyVal {
   def underlyingIfRepeated(isJava: Boolean)(implicit ctx: Context): Type =
     if (self.isRepeatedParam) {
       val seqClass = if (isJava) defn.ArrayClass else defn.SeqClass
-      // If `isJava` is set, then we want to turn `RepeatedParam[T]` into `Array[_ <: T]`,
+      // If `isJava` is set, then we want to turn `RepeatedParam[T]` into `Array[? <: T]`,
       // since arrays aren't covariant until after erasure. See `tests/pos/i5140`.
       translateParameterized(defn.RepeatedParamClass, seqClass, wildcardArg = isJava)
     }

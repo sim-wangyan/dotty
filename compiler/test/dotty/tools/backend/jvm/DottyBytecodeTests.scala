@@ -3,6 +3,10 @@ package dotty.tools.backend.jvm
 import org.junit.Assert._
 import org.junit.Test
 
+import scala.tools.asm
+import asm._
+import asm.tree._
+
 import scala.tools.asm.Opcodes
 
 class TestBCode extends DottyBytecodeTest {
@@ -418,35 +422,11 @@ class TestBCode extends DottyBytecodeTest {
       val method = getMethod(moduleNode, "test")
 
       val instructions = instructionsFromMethod(method)
-      val expected = List(
-        VarOp(Opcodes.ALOAD, 1),
-        VarOp(Opcodes.ASTORE, 2),
-        VarOp(Opcodes.ALOAD, 2),
-        TypeOp(Opcodes.INSTANCEOF, "Test"),
-        Jump(Opcodes.IFEQ, Label(11)),
-        VarOp(Opcodes.ALOAD, 2),
-        TypeOp(Opcodes.CHECKCAST, "Test"),
-        VarOp(Opcodes.ASTORE, 3),
-        Field(Opcodes.GETSTATIC, "scala/Predef$", "MODULE$", "Lscala/Predef$;"),
-        Invoke(Opcodes.INVOKEVIRTUAL, "scala/Predef$", "$qmark$qmark$qmark", "()Lscala/runtime/Nothing$;", false),
-        Op(Opcodes.ATHROW),
-        Label(11),
-        FrameEntry(1, List("java/lang/Object"), List()),
-        TypeOp(Opcodes.NEW, "scala/MatchError"),
-        Op(Opcodes.DUP),
-        VarOp(Opcodes.ALOAD, 2),
-        Invoke(Opcodes.INVOKESPECIAL, "scala/MatchError", "<init>", "(Ljava/lang/Object;)V", false),
-        Op(Opcodes.ATHROW),
-        Label(18),
-        FrameEntry(0, List(), List("java/lang/Throwable")),
-        Op(Opcodes.ATHROW),
-        Label(21),
-        FrameEntry(4, List(), List("java/lang/Throwable")),
-        Op(Opcodes.ATHROW)
-      )
-      assert(instructions == expected,
-        "`test` was not properly generated\n" + diffInstructions(instructions, expected))
-
+      val hasReturn = instructions.exists {
+        case Op(Opcodes.RETURN) => true
+        case _ => false
+      }
+      assertFalse(hasReturn)
     }
   }
 
@@ -548,21 +528,34 @@ class TestBCode extends DottyBytecodeTest {
   }
 
   /** Test that the size of lazy field accesors is under a certain threshold
-   *
-   *  - Changed from 19 to 14
    */
   @Test def lazyFields = {
-    val source =
+    val sourceUnsafe =
+      """import scala.annotation.threadUnsafe
+        |
+        |class Test {
+        |  @threadUnsafe lazy val test = 1
+        |}
+      """.stripMargin
+
+    val sourceSafe =
       """class Test {
         |  lazy val test = 1
         |}
       """.stripMargin
 
-    checkBCode(source) { dir =>
+    checkBCode(sourceUnsafe) { dir =>
       val clsIn   = dir.lookupName("Test.class", directory = false).input
       val clsNode = loadClassNode(clsIn)
       val method  = getMethod(clsNode, "test")
       assertEquals(14, instructionsFromMethod(method).size)
+    }
+
+    checkBCode(sourceSafe) { dir =>
+      val clsIn   = dir.lookupName("Test.class", directory = false).input
+      val clsNode = loadClassNode(clsIn)
+      val method  = getMethod(clsNode, "test")
+      assertEquals(94, instructionsFromMethod(method).size)
     }
   }
 
@@ -693,6 +686,101 @@ class TestBCode extends DottyBytecodeTest {
 
       assert(instructions == expected,
         "`test` was not properly generated\n" + diffInstructions(instructions, expected))
+    }
+  }
+
+  @Test def i5924b = {
+    val source =
+      """|import scala.annotation.static
+         |trait Base
+         |
+         |object Base {
+         |  @static val x = 10
+         |  @static final val y = 10
+         |  @static def f: Int = 30
+         |}
+      """.stripMargin
+
+    checkBCode(source) { dir =>
+      val clsIn   = dir.lookupName("Base.class", directory = false).input
+      val clsNode = loadClassNode(clsIn)
+      val f = getMethod(clsNode, "f")
+      val x = getField(clsNode, "x")
+      val y = getField(clsNode, "y")
+      assert((f.access & Opcodes.ACC_STATIC) != 0)
+      List(x, y).foreach { node =>
+        assert((node.access & Opcodes.ACC_STATIC) != 0)
+        assert((node.access & Opcodes.ACC_FINAL) != 0)
+      }
+    }
+  }
+
+  @Test def i5924c = {
+    val source =
+      """|import scala.annotation.static
+         |class Base
+         |
+         |object Base {
+         |  @static val x = 10
+         |  @static final val y = 10
+         |  @static var a = 10
+         |  @static final var b = 10
+         |  @static def f: Int = 30
+         |}
+      """.stripMargin
+
+    checkBCode(source) { dir =>
+      val clsIn   = dir.lookupName("Base.class", directory = false).input
+      val clsNode = loadClassNode(clsIn)
+      val f = getMethod(clsNode, "f")
+      val x = getField(clsNode, "x")
+      val y = getField(clsNode, "y")
+      val a = getField(clsNode, "a")
+      val b = getField(clsNode, "b")
+      assert((f.access & Opcodes.ACC_STATIC) != 0)
+      List(x, y).foreach { node =>
+        assert((node.access & Opcodes.ACC_STATIC) != 0)
+        assert((node.access & Opcodes.ACC_FINAL) != 0)
+      }
+      List(a, b).foreach { node =>
+        assert((node.access & Opcodes.ACC_STATIC) != 0)
+      }
+    }
+  }
+
+  @Test def freshNames = {
+    val sourceA =
+      """|class A {
+         |  def a1[T: Ordering]: Unit = {}
+         |  def a2[T: Ordering]: Unit = {}
+         |}
+      """.stripMargin
+    val sourceB =
+      """|class B {
+         |  def b1[T: Ordering]: Unit = {}
+         |  def b2[T: Ordering]: Unit = {}
+         |}
+      """.stripMargin
+
+    checkBCode(sourceA, sourceB) { dir =>
+      val clsNodeA = loadClassNode(dir.lookupName("A.class", directory = false).input, skipDebugInfo = false)
+      val clsNodeB = loadClassNode(dir.lookupName("B.class", directory = false).input, skipDebugInfo = false)
+      val a1 = getMethod(clsNodeA, "a1")
+      val a2 = getMethod(clsNodeA, "a2")
+      val b1 = getMethod(clsNodeB, "b1")
+      val b2 = getMethod(clsNodeB, "b2")
+
+      def assertParamName(mn: MethodNode, expectedName: String) = {
+        val actualName = mn.localVariables.get(1).name
+        assert(actualName == expectedName,
+          s"Method ${mn.name} has parameter $actualName but expected $expectedName")
+      }
+
+      // The fresh name counter should be reset for every compilation unit
+      assertParamName(a1, "evidence$1")
+      assertParamName(a2, "evidence$2")
+      assertParamName(b1, "evidence$1")
+      assertParamName(b2, "evidence$2")
     }
   }
 }

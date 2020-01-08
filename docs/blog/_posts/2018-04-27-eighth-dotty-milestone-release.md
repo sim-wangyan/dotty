@@ -68,8 +68,8 @@ def foo[T](x: T) = x match {
 Normally type parameters in Scala are partitioned into kinds. First-level types are types of values.
 Higher-kinded types are type constructors such as `List` or `Map`. The kind of a type is indicated
 by the top type of which it is a subtype. Normal types are subtypes of `Any`, covariant single
-argument type constructors such as List are subtypes of `[+X] => Any`, and the `Map` type
-constructor is a subtype of `[X, +Y] => Any`.
+argument type constructors such as List are subtypes of `[+X] =>> Any`, and the `Map` type
+constructor is a subtype of `[X, +Y] =>> Any`.
 
 Sometimes we would like to have type parameters that can have more than one kind, for instance to
 define an implicit value that works for parameters of any kind. This is now possible through a form
@@ -87,11 +87,11 @@ legal:
 f[Int]
 f[List]
 f[Map]
-f[[X] => String]
+f[[X] =>> String]
 ```
 
 **Note**: This feature is considered experimental and is only enabled under a compiler flag
-(i.e. `-Ykind-polymorphism`). For more information, visit the [Kind Polymorphism](https://dotty.epfl.ch/docs/reference/kind-polymorphism.html)
+(i.e. `-Ykind-polymorphism`). For more information, visit the [Kind Polymorphism](https://dotty.epfl.ch/docs/reference/other-new-features/kind-polymorphism.html)
 section of our documentation.
 
 ### Improved support for SAM type [#4152](https://github.com/lampepfl/dotty/pull/4152)

@@ -1,6 +1,0 @@
-/** Decompiled from out/posTestFromTasty/pos/methodTypes/Foo.class */
-class Foo() {
-  val x: scala.Int = 1
-  def y: scala.Int = 2
-  def z(): scala.Int = 3
-}

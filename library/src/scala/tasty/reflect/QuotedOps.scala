@@ -3,27 +3,31 @@ package scala.tasty.reflect
 /** Extension methods on scala.quoted.{Expr|Type} to convert to scala.tasty.Tasty objects */
 trait QuotedOps extends Core {
 
-  trait QuotedExprAPI {
-    /** View this expression `Expr[T]` as a `Term` */
-    def unseal(implicit ctx: Context): Term
-  }
-  implicit def QuotedExprDeco[T](expr: quoted.Expr[T]): QuotedExprAPI
+  implicit class QuotedExprAPI[T](expr: scala.quoted.Expr[T]) {
+    /** View this expression `quoted.Expr[T]` as a `Term` */
+    def unseal(given ctx: Context): Term =
+      internal.QuotedExpr_unseal(expr)
 
-  trait QuotedTypeAPI {
-    /** View this expression `Type[T]` as a `TypeTree` */
-    def unseal(implicit ctx: Context): TypeTree
+    /** Checked cast to a `quoted.Expr[U]` */
+    def cast[U: scala.quoted.Type](given ctx: Context): scala.quoted.Expr[U] =
+      internal.QuotedExpr_cast[U](expr)
   }
-  implicit def QuotedTypeDeco[T](tpe: quoted.Type[T]): QuotedTypeAPI
 
-  trait TermToQuotedAPI {
-    /** Convert `Term` to an `Expr[T]` and check that it conforms to `T` */
-    def seal[T: scala.quoted.Type](implicit ctx: Context): scala.quoted.Expr[T]
+  implicit class QuotedTypeAPI[T <: AnyKind](tpe: scala.quoted.Type[T]) {
+    /** View this expression `quoted.Type[T]` as a `TypeTree` */
+    def unseal(given ctx: Context): TypeTree =
+      internal.QuotedType_unseal(tpe)
   }
-  implicit def TermToQuoteDeco(term: Term): TermToQuotedAPI
 
-  trait TypeToQuotedAPI {
-    /** Convert `Type` to an `quoted.Type[T]` */
-    def seal(implicit ctx: Context): scala.quoted.Type[_]
+  implicit class TermToQuotedAPI(term: Term) {
+    /** Convert `Term` to an `quoted.Expr[Any]` */
+    def seal(given ctx: Context): scala.quoted.Expr[Any] =
+      internal.QuotedExpr_seal(term)
   }
-  implicit def TypeToQuoteDeco(tpe: Type): TypeToQuotedAPI
+
+  implicit class TypeToQuotedAPI(tpe: Type) {
+    /** Convert `Type` to an `quoted.Type[_]` */
+    def seal(given ctx: Context): scala.quoted.Type[_] =
+      internal.QuotedType_seal(tpe)
+  }
 }

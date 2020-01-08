@@ -215,7 +215,7 @@ object NameKinds {
 
     /** Generate fresh unique term name of this kind with given prefix name */
     def fresh(prefix: TermName = EmptyTermName)(implicit ctx: Context): TermName =
-      ctx.freshNames.newName(prefix, this)
+      ctx.compilationUnit.freshNames.newName(prefix, this)
 
     /** Generate fresh unique type name of this kind with given prefix name */
     def fresh(prefix: TypeName)(implicit ctx: Context): TypeName =
@@ -349,7 +349,7 @@ object NameKinds {
   val OuterSelectName: NumberedNameKind = new NumberedNameKind(OUTERSELECT, "OuterSelect") {
     def mkString(underlying: TermName, info: ThisInfo) = {
       assert(underlying.isEmpty)
-      info.num + "_<outer>"
+      s"${info.num}_<outer>"
     }
   }
 
@@ -359,6 +359,7 @@ object NameKinds {
   val InlineAccessorName: PrefixNameKind = new PrefixNameKind(INLINEACCESSOR, "inline$")
 
   val AvoidClashName: SuffixNameKind = new SuffixNameKind(AVOIDCLASH, "$_avoid_name_clash_$")
+  val CacheName = new SuffixNameKind(CACHE, "$_cache")
   val DirectMethodName: SuffixNameKind = new SuffixNameKind(DIRECT, "$direct") { override def definesNewName = true }
   val FieldName: SuffixNameKind = new SuffixNameKind(FIELD, "$$local") {
       override def mkString(underlying: TermName, info: ThisInfo) = underlying.toString

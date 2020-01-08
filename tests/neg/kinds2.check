@@ -1,0 +1,4 @@
+-- Error: tests/neg/kinds2.scala:14:4 ----------------------------------------------------------------------------------
+14 |  f[C] // error: missing type parameter(s)
+   |    ^
+   |    missing type parameter(s) for C

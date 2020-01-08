@@ -43,14 +43,12 @@ object parsePackage extends ParserTest {
           Tuple(ts map transform)
         case WhileDo(cond, body) =>
           WhileDo(transform(cond), transform(body))
-        case DoWhile(body, cond) =>
-          DoWhile(transform(body), transform(cond))
         case ForYield(enums, expr) =>
           ForYield(enums map transform, transform(expr))
         case ForDo(enums, expr) =>
           ForDo(enums map transform, transform(expr))
-        case GenFrom(pat, expr) =>
-          GenFrom(transform(pat), transform(expr))
+        case GenFrom(pat, expr, filtering) =>
+          GenFrom(transform(pat), transform(expr), filtering)
         case GenAlias(pat, expr) =>
           GenAlias(transform(pat), transform(expr))
         case PatDef(mods, pats, tpt, expr) =>
@@ -68,7 +66,6 @@ object parsePackage extends ParserTest {
     nodes = 0
     val start = System.nanoTime()
     parseDir("./src")
-    parseDir("./scala2-library/src")
     val ms1 = (System.nanoTime() - start)/1000000
     val buf = parsedTrees map transformer.transform
     val ms2 = (System.nanoTime() - start)/1000000

@@ -12,7 +12,7 @@ object TestConfiguration {
   )
 
   val checkOptions = Array(
-    // "-Yscala2-unpickler", s"${Properties.scalaLibrary}:${Properties.scalaXml}",
+    // "-Yscala2-unpickler", s"${Properties.scalaLibrary}",
     "-Yno-deep-subtypes",
     "-Yno-double-bindings",
     "-Yforce-sbt-phases",
@@ -21,21 +21,23 @@ object TestConfiguration {
 
   val basicClasspath = mkClasspath(List(
     Properties.scalaLibrary,
-    Properties.scalaXml,
     Properties.dottyLibrary
   ))
 
   val withCompilerClasspath = mkClasspath(List(
     Properties.scalaLibrary,
-    Properties.scalaXml,
     Properties.scalaAsm,
     Properties.jlineTerminal,
     Properties.jlineReader,
     Properties.compilerInterface,
     Properties.dottyInterfaces,
     Properties.dottyLibrary,
+    Properties.tastyCore,
     Properties.dottyCompiler
   ))
+
+  lazy val withStagingClasspath =
+    withCompilerClasspath + File.pathSeparator + mkClasspath(List(Properties.dottyStaging))
 
   def mkClasspath(classpaths: List[String]): String =
     classpaths.map({ p =>
@@ -46,10 +48,12 @@ object TestConfiguration {
 
   val yCheckOptions = Array("-Ycheck:all")
 
-  val commonOptions = checkOptions ++ noCheckOptions ++ yCheckOptions
+  val commonOptions = Array("-indent") ++ checkOptions ++ noCheckOptions ++ yCheckOptions
   val defaultOptions = TestFlags(basicClasspath, commonOptions)
   val withCompilerOptions =
     defaultOptions.withClasspath(withCompilerClasspath).withRunClasspath(withCompilerClasspath)
+  lazy val withStagingOptions =
+    defaultOptions.withClasspath(withStagingClasspath).withRunClasspath(withStagingClasspath)
   val allowDeepSubtypes = defaultOptions without "-Yno-deep-subtypes"
   val allowDoubleBindings = defaultOptions without "-Yno-double-bindings"
   val picklingOptions = defaultOptions and (
@@ -60,7 +64,10 @@ object TestConfiguration {
   )
   val picklingWithCompilerOptions =
     picklingOptions.withClasspath(withCompilerClasspath).withRunClasspath(withCompilerClasspath)
-  val scala2Mode = defaultOptions and "-language:Scala2"
+  val scala2CompatMode = defaultOptions and "-language:Scala2Compat"
   val explicitUTF8 = defaultOptions and ("-encoding", "UTF8")
   val explicitUTF16 = defaultOptions and ("-encoding", "UTF16")
+
+  /** Enables explicit nulls */
+  val explicitNullsOptions = defaultOptions and "-Yexplicit-nulls"
 }

@@ -23,17 +23,16 @@ class MoveStatics extends MiniPhase with SymTransformer {
   import tpd._
   override def phaseName: String = MoveStatics.name
 
-  def transformSym(sym: SymDenotation)(implicit ctx: Context): SymDenotation = {
-    if (sym.hasAnnotation(defn.ScalaStaticAnnot) && sym.owner.is(Flags.Module) && sym.owner.companionClass.exists) {
+  def transformSym(sym: SymDenotation)(implicit ctx: Context): SymDenotation =
+    if (sym.hasAnnotation(defn.ScalaStaticAnnot) && sym.owner.is(Flags.Module) && sym.owner.companionClass.exists &&
+        (sym.is(Flags.Method) || !(sym.is(Flags.Mutable) && sym.owner.companionClass.is(Flags.Trait)))) {
       sym.owner.asClass.delete(sym.symbol)
       sym.owner.companionClass.asClass.enter(sym.symbol)
-      val flags = if (sym.is(Flags.Method)) sym.flags else sym.flags | Flags.Mutable
-      sym.copySymDenotation(owner = sym.owner.companionClass, initFlags = flags)
+      sym.copySymDenotation(owner = sym.owner.companionClass)
     }
     else sym
-  }
 
-  override def transformStats(trees: List[Tree])(implicit ctx: Context): List[Tree] = {
+  override def transformStats(trees: List[Tree])(implicit ctx: Context): List[Tree] =
     if (ctx.owner.is(Flags.Package)) {
       val (classes, others) = trees.partition(x => x.isInstanceOf[TypeDef] && x.symbol.isClass)
       val pairs = classes.groupBy(_.symbol.name.stripModuleClassSuffix).asInstanceOf[Map[Name, List[TypeDef]]]
@@ -51,18 +50,19 @@ class MoveStatics extends MiniPhase with SymTransformer {
 
             val staticAssigns = staticFields.map(x => Assign(ref(x.symbol), x.rhs.changeOwner(x.symbol, staticCostructor)))
             tpd.DefDef(staticCostructor, Block(staticAssigns, tpd.unitLiteral)) :: newBody
-          } else newBody
+          }
+          else newBody
 
         val oldTemplate = orig.rhs.asInstanceOf[Template]
         cpy.TypeDef(orig)(rhs = cpy.Template(oldTemplate)(body = newBodyWithStaticConstr))
       }
 
       def move(module: TypeDef, companion: TypeDef): List[Tree] = {
-        assert(companion ne module)
+        assert(companion != module)
         if (!module.symbol.is(Flags.Module)) move(companion, module)
         else {
           val allMembers =
-            (if(companion ne null) {companion.rhs.asInstanceOf[Template].body} else Nil) ++
+            (if (companion != null) {companion.rhs.asInstanceOf[Template].body} else Nil) ++
             module.rhs.asInstanceOf[Template].body
           val (newModuleBody, newCompanionBody) = allMembers.partition(x => {assert(x.symbol.exists); x.symbol.owner == module.symbol})
           Trees.flatten(rebuild(companion, newCompanionBody) :: rebuild(module, newModuleBody) :: Nil)
@@ -76,6 +76,6 @@ class MoveStatics extends MiniPhase with SymTransformer {
               else List(rebuild(classes.head, classes.head.rhs.asInstanceOf[Template].body))
             else move(classes.head, classes.tail.head)
       Trees.flatten(newPairs.toList.flatten ++ others)
-    } else trees
-  }
+    }
+    else trees
 }

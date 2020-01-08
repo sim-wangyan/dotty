@@ -11,6 +11,7 @@ object comptest extends ParallelTesting {
   def safeMode = false
   def isInteractive = true
   def testFilter = None
+  def updateCheckFiles: Boolean = false
 
   val posDir = "./tests/pos/"
   val negDir = "./tests/neg/"
@@ -24,6 +25,6 @@ object comptest extends ParallelTesting {
         dotcDir + "tools/dotc/core/Types.scala",
         dotcDir + "tools/dotc/ast/Trees.scala"
       ),
-      TestFlags("", Array("-Ylog:frontend", "-Xprompt"))
+      TestFlags("", Array("-Ylog:typer", "-Xprompt"))
   )(TestGroup("comptest"))
 }

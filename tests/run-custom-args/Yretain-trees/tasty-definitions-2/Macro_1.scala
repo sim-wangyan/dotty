@@ -1,21 +1,16 @@
 import scala.quoted._
-import scala.tasty._
+import scala.quoted.autolift.given
 
 object Foo {
 
   inline def inspectBody(i: => Int): String =
-    ~inspectBodyImpl('(i))
+    ${ inspectBodyImpl('i) }
 
-  def inspectBodyImpl(x: Expr[Int])(implicit reflect: Reflection): Expr[String] = {
-    import reflect._
-    def definitionString(tree: Tree): Expr[String] = tree.symbol match {
-      case IsDefSymbol(sym) => sym.tree.show.toExpr
-      case IsValSymbol(sym) => sym.tree.show.toExpr
-      case IsBindSymbol(sym) => sym.tree.show.toExpr
-    }
+  def inspectBodyImpl(x: Expr[Int])(given qctx: QuoteContext): Expr[String] = {
+    import qctx.tasty.{_, given}
     x.unseal match {
-      case Term.Inlined(None, Nil, arg) => definitionString(arg)
-      case arg => definitionString(arg) // TODO should all by name parameters be in an inline node?
+      case Inlined(None, Nil, arg) => arg.symbol.tree.showExtractors
+      case arg => arg.symbol.tree.showExtractors // TODO should all by name parameters be in an inline node?
     }
   }
 

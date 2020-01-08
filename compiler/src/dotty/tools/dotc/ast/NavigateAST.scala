@@ -39,9 +39,9 @@ object NavigateAST {
    */
   def untypedPath(tree: tpd.Tree, exactMatch: Boolean = false)(implicit ctx: Context): List[Positioned] =
     tree match {
-      case tree: MemberDef[_] =>
+      case tree: MemberDef[?] =>
         untypedPath(tree.span) match {
-          case path @ (last: DefTree[_]) :: _ => path
+          case path @ (last: DefTree[?]) :: _ => path
           case path if !exactMatch => path
           case _ => Nil
         }
@@ -70,16 +70,21 @@ object NavigateAST {
    */
   def pathTo(span: Span, from: Positioned, skipZeroExtent: Boolean = false)(implicit ctx: Context): List[Positioned] = {
     def childPath(it: Iterator[Any], path: List[Positioned]): List[Positioned] = {
+      var bestFit: List[Positioned] = path
       while (it.hasNext) {
         val path1 = it.next() match {
           case p: Positioned => singlePath(p, path)
           case m: untpd.Modifiers => childPath(m.productIterator, path)
-          case xs: List[_] => childPath(xs.iterator, path)
+          case xs: List[?] => childPath(xs.iterator, path)
           case _ => path
         }
-        if (path1 ne path) return path1
+        if ((path1 ne path) &&
+            ((bestFit eq path) ||
+             bestFit.head.span != path1.head.span &&
+             bestFit.head.span.contains(path1.head.span)))
+          bestFit = path1
       }
-      path
+      bestFit
     }
     def singlePath(p: Positioned, path: List[Positioned]): List[Positioned] =
       if (p.span.exists && !(skipZeroExtent && p.span.isZeroExtent) && p.span.contains(span)) {
@@ -87,12 +92,13 @@ object NavigateAST {
         // our usage of `productIterator` by something in `Positioned` that takes
         // care of low-level details like this for us.
         p match {
-          case p: WithLazyField[_] =>
+          case p: WithLazyField[?] =>
             p.forceIfLazy
           case _ =>
         }
         childPath(p.productIterator, p :: path)
-      } else path
+      }
+      else path
     singlePath(from, Nil)
   }
 }

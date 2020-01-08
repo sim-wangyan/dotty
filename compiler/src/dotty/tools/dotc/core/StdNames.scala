@@ -20,6 +20,7 @@ object StdNames {
     final val INITIALIZER_PREFIX       = "initial$"
     final val AVOID_CLASH_SUFFIX       = "$_avoid_name_clash_$"
     final val MODULE_SUFFIX            = "$"
+    final val TOPLEVEL_SUFFIX          = "$package"
     final val NAME_JOIN                = "$"
     final val DEFAULT_GETTER           = "$default$"
     final val LOCALDUMMY_PREFIX        = "<local "       // owner of local blocks
@@ -115,9 +116,9 @@ object StdNames {
     val ANON_FUN: N                   = str.ANON_FUN
     val BITMAP_PREFIX: N              = "bitmap$"  // @darkdimius: $bitmap? Also, the next 4 names are unused.
     val BITMAP_NORMAL: N              = BITMAP_PREFIX         // initialization bitmap for public/protected lazy vals
-    val BITMAP_TRANSIENT: N           = BITMAP_PREFIX + "trans$"    // initialization bitmap for transient lazy vals
-    val BITMAP_CHECKINIT: N           = BITMAP_PREFIX + "init$"      // initialization bitmap for checkinit values
-    val BITMAP_CHECKINIT_TRANSIENT: N = BITMAP_PREFIX + "inittrans$" // initialization bitmap for transient checkinit values
+    val BITMAP_TRANSIENT: N           = s"${BITMAP_PREFIX}trans$$"    // initialization bitmap for transient lazy vals
+    val BITMAP_CHECKINIT: N           = s"${BITMAP_PREFIX}init$$"      // initialization bitmap for checkinit values
+    val BITMAP_CHECKINIT_TRANSIENT: N = s"${BITMAP_PREFIX}inittrans$$" // initialization bitmap for transient checkinit values
     val DEFAULT_GETTER: N             = str.DEFAULT_GETTER
     val DEFAULT_GETTER_INIT: N        = "$lessinit$greater"
     val DO_WHILE_PREFIX: N            = "doWhile$"
@@ -127,7 +128,6 @@ object StdNames {
     val EMPTY_PACKAGE: N              = "<empty>"
     val EXCEPTION_RESULT_PREFIX: N    = "exceptionResult"
     val EXPAND_SEPARATOR: N           = str.EXPAND_SEPARATOR
-    val IMPL_CLASS_SUFFIX: N          = "$class"
     val IMPORT: N                     = "<import>"
     val MODULE_SUFFIX: N              = str.MODULE_SUFFIX
     val OPS_PACKAGE: N                = "<special-ops>"
@@ -141,7 +141,7 @@ object StdNames {
     val INITIALIZER_PREFIX: N         = "initial$"
     val BOUNDTYPE_ANNOT: N            = "$boundType$"
     val QUOTE: N                      = "'"
-    val TYPE_QUOTE: N                = "type_'"
+    val TYPE_QUOTE: N                 = "type_'"
     val TRAIT_SETTER_SEPARATOR: N     = str.TRAIT_SETTER_SEPARATOR
 
     // value types (and AnyRef) are all used as terms as well
@@ -195,8 +195,11 @@ object StdNames {
     final val ExprApi: N             = "ExprApi"
     final val Mirror: N              = "Mirror"
     final val Nothing: N             = "Nothing"
+    final val NotNull: N             = "NotNull"
     final val Null: N                = "Null"
+    final val UncheckedNull: N            = "UncheckedNull"
     final val Object: N              = "Object"
+    final val Product: N             = "Product"
     final val PartialFunction: N     = "PartialFunction"
     final val PrefixType: N          = "PrefixType"
     final val S: N                   = "S"
@@ -204,6 +207,7 @@ object StdNames {
     final val Singleton: N           = "Singleton"
     final val Throwable: N           = "Throwable"
     final val IOOBException: N       = "IndexOutOfBoundsException"
+    final val FunctionXXL: N         = "FunctionXXL"
 
     final val ClassfileAnnotation: N = "ClassfileAnnotation"
     final val ClassManifest: N       = "ClassManifest"
@@ -219,24 +223,24 @@ object StdNames {
     final val bridgeAnnot: N = "bridge"
 
     // Classfile Attributes
-    final val AnnotationDefaultATTR: N      = "AnnotationDefault"
-    final val BridgeATTR: N                 = "Bridge"
-    final val ClassfileAnnotationATTR: N    = "RuntimeInvisibleAnnotations" // RetentionPolicy.CLASS. Currently not used (Apr 2009).
-    final val CodeATTR: N                   = "Code"
-    final val ConstantValueATTR: N          = "ConstantValue"
-    final val DeprecatedATTR: N             = "Deprecated"
-    final val ExceptionsATTR: N             = "Exceptions"
-    final val InnerClassesATTR: N           = "InnerClasses"
-    final val LineNumberTableATTR: N        = "LineNumberTable"
-    final val LocalVariableTableATTR: N     = "LocalVariableTable"
-    final val RuntimeAnnotationATTR: N      = "RuntimeVisibleAnnotations"   // RetentionPolicy.RUNTIME
-    final val RuntimeParamAnnotationATTR: N = "RuntimeVisibleParameterAnnotations" // RetentionPolicy.RUNTIME (annotations on parameters)
-    final val ScalaATTR: N                  = "Scala"
-    final val ScalaSignatureATTR: N         = "ScalaSig"
-    final val TASTYATTR: N                  = "TASTY"
-    final val SignatureATTR: N              = "Signature"
-    final val SourceFileATTR: N             = "SourceFile"
-    final val SyntheticATTR: N              = "Synthetic"
+    final val AnnotationDefaultATTR: N            = "AnnotationDefault"
+    final val BridgeATTR: N                       = "Bridge"
+    final val CodeATTR: N                         = "Code"
+    final val ConstantValueATTR: N                = "ConstantValue"
+    final val DeprecatedATTR: N                   = "Deprecated"
+    final val ExceptionsATTR: N                   = "Exceptions"
+    final val InnerClassesATTR: N                 = "InnerClasses"
+    final val LineNumberTableATTR: N              = "LineNumberTable"
+    final val LocalVariableTableATTR: N           = "LocalVariableTable"
+    final val RuntimeVisibleAnnotationATTR: N     = "RuntimeVisibleAnnotations"   // RetentionPolicy.RUNTIME
+    final val RuntimeInvisibleAnnotationATTR: N   = "RuntimeInvisibleAnnotations" // RetentionPolicy.CLASS
+    final val RuntimeParamAnnotationATTR: N       = "RuntimeVisibleParameterAnnotations" // RetentionPolicy.RUNTIME (annotations on parameters)
+    final val ScalaATTR: N                        = "Scala"
+    final val ScalaSignatureATTR: N               = "ScalaSig"
+    final val TASTYATTR: N                        = "TASTY"
+    final val SignatureATTR: N                    = "Signature"
+    final val SourceFileATTR: N                   = "SourceFile"
+    final val SyntheticATTR: N                    = "Synthetic"
 
 
 // ----- Term names -----------------------------------------
@@ -259,6 +263,7 @@ object StdNames {
     val MIRROR_PREFIX: N            = "$m."
     val MIRROR_SHORT: N             = "$m"
     val MIRROR_UNTYPED: N           = "$m$untyped"
+    val NOT_NULL: N                 = "$nn"
     val REIFY_FREE_PREFIX: N        = "free$"
     val REIFY_FREE_THIS_SUFFIX: N   = "$this"
     val REIFY_FREE_VALUE_SUFFIX: N  = "$value"
@@ -313,6 +318,8 @@ object StdNames {
     val _21 : N = "_21"
     val _22 : N = "_22"
 
+    val * : N   = "*"
+    val ? : N   = "?"
     val ??? : N = "???"
 
     val genericWrapArray: N     = "genericWrapArray"
@@ -324,6 +331,7 @@ object StdNames {
     val AnnotatedType: N        = "AnnotatedType"
     val AppliedTypeTree: N      = "AppliedTypeTree"
     val ArrayAnnotArg: N        = "ArrayAnnotArg"
+    val CAP: N                  = "CAP"
     val Constant: N             = "Constant"
     val ConstantType: N         = "ConstantType"
     val doubleHash: N           = "doubleHash"
@@ -335,6 +343,12 @@ object StdNames {
     val Literal: N              = "Literal"
     val LiteralAnnotArg: N      = "LiteralAnnotArg"
     val longHash: N             = "longHash"
+    val MatchCase: N            = "MatchCase"
+    val MirroredElemTypes: N    = "MirroredElemTypes"
+    val MirroredElemLabels: N   = "MirroredElemLabels"
+    val MirroredLabel: N        = "MirroredLabel"
+    val MirroredMonoType: N     = "MirroredMonoType"
+    val MirroredType: N         = "MirroredType"
     val Modifiers: N            = "Modifiers"
     val NestedAnnotArg: N       = "NestedAnnotArg"
     val NoFlags: N              = "NoFlags"
@@ -345,7 +359,7 @@ object StdNames {
     val Ref: N                  = "Ref"
     val RootPackage: N          = "RootPackage"
     val RootClass: N            = "RootClass"
-    val Scala2: N               = "Scala2"
+    val Scala2Compat: N         = "Scala2Compat"
     val Select: N               = "Select"
     val Shape: N                = "Shape"
     val StringContext: N        = "StringContext"
@@ -356,8 +370,10 @@ object StdNames {
     val TypeApply: N            = "TypeApply"
     val TypeRef: N              = "TypeRef"
     val UNIT : N                = "UNIT"
-    val add_ : N                = "add"
+    val acc: N                  = "acc"
+    val adhocExtensions: N      = "adhocExtensions"
     val annotation: N           = "annotation"
+    val any2stringadd: N        = "any2stringadd"
     val anyHash: N              = "anyHash"
     val anyValClass: N          = "anyValClass"
     val append: N               = "append"
@@ -381,6 +397,7 @@ object StdNames {
     val asType: N               = "asType"
     val asClass: N              = "asClass"
     val asInstanceOf_ : N       = "asInstanceOf"
+    val asInstanceOfPM: N       = "$asInstanceOf$"
     val assert_ : N             = "assert"
     val assume_ : N             = "assume"
     val box: N                  = "box"
@@ -405,9 +422,10 @@ object StdNames {
     val drop: N                 = "drop"
     val dynamics: N             = "dynamics"
     val elem: N                 = "elem"
+    val elems: N                = "elems"
     val emptyValDef: N          = "emptyValDef"
+    val end: N                  = "end"
     val ensureAccessible : N    = "ensureAccessible"
-    val enumTag: N              = "enumTag"
     val eq: N                   = "eq"
     val eqInstance: N           = "eqInstance"
     val equalsNumChar : N       = "equalsNumChar"
@@ -416,8 +434,10 @@ object StdNames {
     val equals_ : N             = "equals"
     val error: N                = "error"
     val eval: N                 = "eval"
-    val eqAny: N                = "eqAny"
+    val eqlAny: N               = "eqlAny"
     val ex: N                   = "ex"
+    val extended: N             = "extended"
+    val extension: N            = "extension"
     val experimental: N         = "experimental"
     val f: N                    = "f"
     val false_ : N              = "false"
@@ -427,6 +447,8 @@ object StdNames {
     val flagsFromBits : N       = "flagsFromBits"
     val flatMap: N              = "flatMap"
     val foreach: N              = "foreach"
+    val fromDigits: N           = "fromDigits"
+    val fromProduct: N          = "fromProduct"
     val genericArrayOps: N      = "genericArrayOps"
     val genericClass: N         = "genericClass"
     val get: N                  = "get"
@@ -434,6 +456,7 @@ object StdNames {
     val getOrElse: N            = "getOrElse"
     val hasNext: N              = "hasNext"
     val hashCode_ : N           = "hashCode"
+    val _hashCode_ : N          = "_hashCode"
     val hash_ : N               = "hash"
     val head: N                 = "head"
     val higherKinds: N          = "higherKinds"
@@ -471,6 +494,7 @@ object StdNames {
     val mirror : N              = "mirror"
     val moduleClass : N         = "moduleClass"
     val name: N                 = "name"
+    val nameDollar: N           = "$name"
     val ne: N                   = "ne"
     val newFreeTerm: N          = "newFreeTerm"
     val newFreeType: N          = "newFreeType"
@@ -483,18 +507,23 @@ object StdNames {
     val notifyAll_ : N          = "notifyAll"
     val notify_ : N             = "notify"
     val null_ : N               = "null"
+    val nullExpr: N             = "nullExpr"
     val ofDim: N                = "ofDim"
     val opaque: N               = "opaque"
+    val open: N                 = "open"
     val ordinal: N              = "ordinal"
+    val ordinalDollar: N        = "$ordinal"
+    val ordinalDollar_ : N      = "_$ordinal"
     val origin: N               = "origin"
+    val parts: N                = "parts"
     val prefix : N              = "prefix"
+    val processEscapes: N       = "processEscapes"
     val productArity: N         = "productArity"
     val productElement: N       = "productElement"
     val productElementName: N   = "productElementName"
     val productIterator: N      = "productIterator"
     val productPrefix: N        = "productPrefix"
     val raw_ : N                = "raw"
-    val readResolve: N          = "readResolve"
     val reflect: N              = "reflect"
     val reflectiveSelectable: N = "reflectiveSelectable"
     val reify : N               = "reify"
@@ -519,7 +548,8 @@ object StdNames {
     val setSymbol: N            = "setSymbol"
     val setType: N              = "setType"
     val setTypeSignature: N     = "setTypeSignature"
-    val splice: N               = "splice"
+    val splice: N               = "$splice"
+    val standardInterpolator: N = "standardInterpolator"
     val staticClass : N         = "staticClass"
     val staticModule : N        = "staticModule"
     val staticPackage : N       = "staticPackage"
@@ -532,6 +562,7 @@ object StdNames {
     val thisPrefix : N          = "thisPrefix"
     val throw_ : N              = "throw"
     val toArray: N              = "toArray"
+    val toExpr: N               = "toExpr"
     val toList: N               = "toList"
     val toObjectArray : N       = "toObjectArray"
     val toSeq: N                = "toSeq"
@@ -545,6 +576,7 @@ object StdNames {
     val unapply: N              = "unapply"
     val unapplySeq: N           = "unapplySeq"
     val unbox: N                = "unbox"
+    val unitExpr: N             = "unitExpr"
     val universe: N             = "universe"
     val update: N               = "update"
     val updateDynamic: N        = "updateDynamic"
@@ -557,6 +589,7 @@ object StdNames {
     val withFilterIfRefutable: N = "withFilterIfRefutable$"
     val WorksheetWrapper: N     = "WorksheetWrapper"
     val wrap: N                 = "wrap"
+    val writeReplace: N         = "writeReplace"
     val zero: N                 = "zero"
     val zip: N                  = "zip"
     val nothingRuntimeClass: N  = "scala.runtime.Nothing$"
@@ -778,6 +811,7 @@ object StdNames {
     final val ELSEkw: N         = kw("else")
     final val ENUMkw: N         = kw("enum")
     final val EXTENDSkw: N      = kw("extends")
+    final val FALSEkw: N        = kw("false")
     final val FINALkw: N        = kw("final")
     final val FINALLYkw: N      = kw("finally")
     final val FLOATkw: N        = kw("float")
@@ -807,6 +841,7 @@ object StdNames {
     final val THROWkw: N        = kw("throw")
     final val THROWSkw: N       = kw("throws")
     final val TRANSIENTkw: N    = kw("transient")
+    final val TRUEkw: N         = kw("true")
     final val TRYkw: N          = kw("try")
     final val VOIDkw: N         = kw("void")
     final val VOLATILEkw: N     = kw("volatile")
@@ -842,7 +877,7 @@ object StdNames {
     final val BeanProperty: N        = "scala.beans.BeanProperty"
     final val BooleanBeanProperty: N = "scala.beans.BooleanBeanProperty"
     final val JavaSerializable: N    = "java.io.Serializable"
-   }
+  }
 
   class JavaTermNames extends JavaNames[TermName] {
     protected def fromString(s: String): TermName = termName(s)

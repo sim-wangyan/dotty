@@ -17,6 +17,7 @@ import DenotTransformers._
 import NameOps._
 import NameKinds.OuterSelectName
 import StdNames._
+import NullOpsDecorator._
 
 object FirstTransform {
   val name: String = "firstTransform"
@@ -47,19 +48,33 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
 
   override protected def mayChange(sym: Symbol)(implicit ctx: Context): Boolean = sym.isClass
 
-  override def checkPostCondition(tree: Tree)(implicit ctx: Context): Unit = {
+  override def checkPostCondition(tree: Tree)(implicit ctx: Context): Unit =
     tree match {
       case Select(qual, name) if !name.is(OuterSelectName) && tree.symbol.exists =>
+        val qualTpe = if (ctx.explicitNulls) {
+          // `UncheckedNull` is already special-cased in the Typer, but needs to be handled here as well.
+          // We need `stripAllUncheckedNull` and not `stripUncheckedNull` because of the following case:
+          //
+          //   val s: (String|UncheckedNull)&(String|UncheckedNull) = "hello"
+          //   val l = s.length
+          //
+          // The invariant below is that the type of `s`, which isn't a top-level UncheckedNull union,
+          // must derive from the type of the owner of `length`, which is `String`. Because we don't
+          // know which `UncheckedNull`s were used to find the `length` member, we conservatively remove
+          // all of them.
+          qual.tpe.stripAllUncheckedNull
+        } else {
+          qual.tpe
+        }
         assert(
-          qual.tpe.derivesFrom(tree.symbol.owner) ||
-            tree.symbol.is(JavaStatic) && qual.tpe.derivesFrom(tree.symbol.enclosingClass),
-          i"non member selection of ${tree.symbol.showLocated} from ${qual.tpe} in $tree")
+          qualTpe.derivesFrom(tree.symbol.owner) ||
+            tree.symbol.is(JavaStatic) && qualTpe.derivesFrom(tree.symbol.enclosingClass),
+          i"non member selection of ${tree.symbol.showLocated} from ${qualTpe} in $tree")
       case _: TypeTree =>
       case _: Import | _: NamedArg | _: TypTree =>
         assert(false, i"illegal tree: $tree")
       case _ =>
     }
-  }
 
   /** Reorder statements so that module classes always come after their companion classes */
   private def reorderAndComplete(stats: List[Tree])(implicit ctx: Context): List[Tree] = {
@@ -71,14 +86,15 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
      */
     def reorder(stats: List[Tree], revPrefix: List[Tree]): List[Tree] = stats match {
       case (stat: TypeDef) :: stats1 if stat.symbol.isClass =>
-        if (stat.symbol is Flags.Module) {
+        if (stat.symbol.is(Flags.Module)) {
           def pushOnTop(xs: List[Tree], ys: List[Tree]): List[Tree] =
-            (ys /: xs)((ys, x) => x :: ys)
+            xs.foldLeft(ys)((ys, x) => x :: ys)
           moduleClassDefs += (stat.name -> stat)
           singleClassDefs -= stat.name.stripModuleClassSuffix
           val stats1r = reorder(stats1, Nil)
           pushOnTop(revPrefix, if (moduleClassDefs contains stat.name) stat :: stats1r else stats1r)
-        } else {
+        }
+        else
           reorder(
             stats1,
             moduleClassDefs remove stat.name.moduleClassName match {
@@ -89,7 +105,6 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
                 stat :: revPrefix
             }
           )
-        }
       case stat :: stats1 => reorder(stats1, stat :: revPrefix)
       case Nil => revPrefix.reverse
     }
@@ -98,19 +113,18 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
   }
 
   /** eliminate self in Template */
-  override def transformTemplate(impl: Template)(implicit ctx: Context): Tree = {
+  override def transformTemplate(impl: Template)(implicit ctx: Context): Tree =
     cpy.Template(impl)(self = EmptyValDef)
-  }
 
   override def transformDefDef(ddef: DefDef)(implicit ctx: Context): Tree = {
     val meth = ddef.symbol.asTerm
     if (meth.hasAnnotation(defn.NativeAnnot)) {
       meth.resetFlag(Deferred)
       polyDefDef(meth,
-        _ => _ => ref(defn.Sys_errorR).withSpan(ddef.span)
+        _ => _ => ref(defn.Sys_error.termRef).withSpan(ddef.span)
           .appliedTo(Literal(Constant(s"native method stub"))))
-
     }
+
     else ddef
   }
 
@@ -134,7 +148,7 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
   private def toTypeTree(tree: Tree)(implicit ctx: Context) = {
     val binders = collectBinders.apply(Nil, tree)
     val result: Tree = TypeTree(tree.tpe).withSpan(tree.span)
-    (result /: binders)(Annotated(_, _))
+    binders.foldLeft(result)(Annotated(_, _))
   }
 
   override def transformOther(tree: Tree)(implicit ctx: Context): Tree = tree match {
@@ -144,7 +158,16 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
   }
 
   override def transformIdent(tree: Ident)(implicit ctx: Context): Tree =
-    if (tree.isType) toTypeTree(tree) else constToLiteral(tree)
+    if (tree.isType) {
+      toTypeTree(tree)
+    } else if (tree.name != nme.WILDCARD) {
+      // We constant-fold all idents except wildcards.
+      // AFAIK, constant-foldable wildcard idents can only occur in patterns, for instance as `case _: "a"`.
+      // Constant-folding that would result in `case "a": "a"`, which changes the meaning of the pattern.
+      // Note that we _do_ want to constant-fold idents in patterns that _aren't_ wildcards -
+      // for example, @switch annotation needs to see inlined literals and not indirect references.
+      constToLiteral(tree)
+    } else tree
 
   override def transformSelect(tree: Select)(implicit ctx: Context): Tree =
     if (tree.isType) toTypeTree(tree) else constToLiteral(tree)
@@ -156,14 +179,17 @@ class FirstTransform extends MiniPhase with InfoTransformer { thisPhase =>
     constToLiteral(foldCondition(tree))
 
   override def transformTyped(tree: Typed)(implicit ctx: Context): Tree =
-    constToLiteral(tree)
+    // Singleton type cases (such as `case _: "a"`) are constant-foldable.
+    // We avoid constant-folding those as doing so would change the meaning of the pattern (see transformIdent).
+    if (!ctx.mode.is(Mode.Pattern)) constToLiteral(tree) else tree
 
   override def transformBlock(tree: Block)(implicit ctx: Context): Tree =
     constToLiteral(tree)
 
   override def transformIf(tree: If)(implicit ctx: Context): Tree =
-    tree.cond match {
-      case Literal(Constant(c: Boolean)) => if (c) tree.thenp else tree.elsep
+    tree.cond.tpe match {
+      case ConstantType(Constant(c: Boolean)) if isPureExpr(tree.cond) =>
+        if (c) tree.thenp else tree.elsep
       case _ => tree
     }
 

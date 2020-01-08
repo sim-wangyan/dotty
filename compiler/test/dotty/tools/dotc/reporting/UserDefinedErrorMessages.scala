@@ -9,7 +9,7 @@ import org.junit.Test
 
 class UserDefinedErrorMessages extends ErrorMessagesTest {
   @Test def userDefinedImplicitAmbiguous1 =
-    checkMessagesAfter("frontend") {
+    checkMessagesAfter("typer") {
       """
         |object Test {
         |  trait =!=[C, D]
@@ -34,7 +34,7 @@ class UserDefinedErrorMessages extends ErrorMessagesTest {
     }
 
   @Test def userDefinedImplicitAmbiguous2 =
-    checkMessagesAfter("frontend") {
+    checkMessagesAfter("typer") {
       """
         |object Test {
         |  trait =!=[C, D]
@@ -59,7 +59,7 @@ class UserDefinedErrorMessages extends ErrorMessagesTest {
     }
 
   @Test def userDefinedImplicitAmbiguous3 =
-    checkMessagesAfter("frontend") {
+    checkMessagesAfter("typer") {
       """
         |object Test {
         |  trait =!=[C, D]
@@ -85,7 +85,7 @@ class UserDefinedErrorMessages extends ErrorMessagesTest {
     }
 
   @Test def userDefinedImplicitAmbiguous4 =
-    checkMessagesAfter("frontend") {
+    checkMessagesAfter("typer") {
       """
         |class C {
         |  import scala.language.implicitConversions
@@ -108,12 +108,12 @@ class UserDefinedErrorMessages extends ErrorMessagesTest {
     }
 
   @Test def userDefinedImplicitAmbiguous5 =
-    checkMessagesAfter("frontend") {
+    checkMessagesAfter("typer") {
       """
         |class C {
         |  @annotation.implicitAmbiguous("msg A=${A}")
         |  implicit def f[A](implicit x: String): Int = 1
-        |  implicit def g: Int = 2
+        |  implicit def g(implicit x: String): Int = 2
         |  def test: Unit = {
         |    implicit val s: String = "Hello"
         |    implicitly[Int]

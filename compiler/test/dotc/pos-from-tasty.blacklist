@@ -1,27 +1,15 @@
-# Wrong number of arguments (only on bootstrapped)
-i3130b.scala
-
-# Missing position
+# has location not matching its contents: contains class mixins.Collections
 collections_1.scala
 
-# MatchError in SymDenotation.sourceModule on a ThisType
+# Infinite loop
 t3612.scala
 
-# Fails on MacOS
-annot-bootstrap.scala
+# Other failure
+t802.scala
 
-# ScalaRunTime cannot be unpickled because it is already loaded
-repeatedArgs213.scala
+# Matchtype
+i7087.scala
 
-# Error printing parent constructors that are blocks
-default-super.scala
-
-# Did not survive addition of type ascriptions in decompiled tests
-i3050.scala
-i4006b.scala
-i4006c.scala
-
-# Need to print empty tree for implicit match
-implicit-match.scala
-implicit-match-nested.scala
-implicit-match-and-inline-match.scala
+# Nullability
+nullable.scala
+notNull.scala

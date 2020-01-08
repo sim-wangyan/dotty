@@ -7,10 +7,11 @@ import dotty.tools.dotc.util.Spans._
 import dotty.tools.dotc.core.Symbols._
 import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.core.Decorators._
+import dotty.tools.dotc.printing.Formatting.hl
 import scala.collection.mutable
 import dotty.tools.dotc.config.Printers.dottydoc
 import scala.util.matching.Regex
-import com.vladsch.flexmark.ast.{ Node => MarkdownNode }
+import com.vladsch.flexmark.util.ast.{ Node => MarkdownNode }
 import com.vladsch.flexmark.parser.{ Parser => MarkdownParser }
 
 trait CommentParser extends util.MemberLookup {
@@ -197,7 +198,7 @@ trait CommentParser extends util.MemberLookup {
         )
 
         for ((key, _) <- bodyTags) ctx.docbase.warn(
-          hl"Tag '${"@" + key.name}' is not recognised",
+          em"Tag '${hl("@" + key.name)}' is not recognised",
           // FIXME: here the position is stretched out over the entire comment,
           // with the point being at the very end. This ensures that the entire
           // comment will be visible in error reporting. A more fine-grained

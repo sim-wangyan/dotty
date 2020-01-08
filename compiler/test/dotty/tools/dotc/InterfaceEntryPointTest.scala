@@ -3,6 +3,7 @@ package tools.dotc
 
 import org.junit.Test
 import org.junit.Assert._
+import org.junit.experimental.categories.Category
 import interfaces._
 import scala.collection.mutable.ListBuffer
 import java.nio.file._
@@ -18,6 +19,7 @@ import java.nio.file._
  *
  *  @see [[OtherEntryPointsTest]]
  */
+@Category(Array(classOf[BootstrappedOnlyTests]))
 class InterfaceEntryPointTest {
   @Test def runCompilerFromInterface = {
     val sources =
@@ -26,7 +28,12 @@ class InterfaceEntryPointTest {
     if (Files.notExists(out))
       Files.createDirectory(out)
 
-    val args = sources ++ List("-d", out.toString, "-usejavacp")
+    val args = sources ++ List(
+      "-d",
+      out.toString,
+      "-classpath", "", // Avoid the default "."
+      "-usejavacp"
+    )
 
     val mainClass = Class.forName("dotty.tools.dotc.Main")
     val process = mainClass.getMethod("process",

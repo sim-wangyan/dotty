@@ -1,4 +1,5 @@
-package dotty.tools.dotc.printing
+package dotty.tools.dotc
+package printing
 
 import dotty.tools.dotc.ast.untpd
 import dotty.tools.dotc.core.Contexts.Context
@@ -32,23 +33,26 @@ object SyntaxHighlighting {
     def freshCtx = ctx.fresh.setReporter(Reporter.NoReporter)
     if (in.isEmpty || ctx.settings.color.value == "never") in
     else {
-      implicit val ctx = freshCtx
       val source = SourceFile.virtual("<highlighting>", in)
+
+      implicit val ctx = freshCtx.setCompilationUnit(CompilationUnit(source, mustExist = false)(freshCtx))
+
       val colorAt = Array.fill(in.length)(NoColor)
 
       def highlightRange(from: Int, to: Int, color: String) =
         Arrays.fill(colorAt.asInstanceOf[Array[AnyRef]], from, to, color)
 
-      def highlightPosition(span: Span, color: String) = if (span.exists) {
+      def highlightPosition(span: Span, color: String) = if (span.exists)
         if (span.start < 0 || span.end > in.length) {
           if (debug)
             println(s"Trying to highlight erroneous position $span. Input size: ${in.length}")
         }
         else
           highlightRange(span.start, span.end, color)
-      }
 
-      val scanner = new Scanner(source)
+      val scanner = new Scanner(source) {
+        override protected def printState() = ()
+      }
       while (scanner.token != EOF) {
         val start = scanner.offset
         val token = scanner.token

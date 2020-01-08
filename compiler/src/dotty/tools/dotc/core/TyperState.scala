@@ -7,8 +7,11 @@ import Contexts._
 import util.{SimpleIdentityMap, SimpleIdentitySet}
 import reporting._
 import config.Config
+import config.Printers.constr
 import collection.mutable
 import java.lang.ref.WeakReference
+import util.Stats
+import Decorators._
 
 import scala.annotation.internal.sharable
 
@@ -16,12 +19,14 @@ object TyperState {
   @sharable private var nextId: Int = 0
 }
 
-class TyperState(previous: TyperState /* | Null */) {
+class TyperState(private val previous: TyperState /* | Null */) {
+
+  Stats.record("typerState")
 
   val id: Int = TyperState.nextId
   TyperState.nextId += 1
 
-  private[this] var myReporter =
+  private var myReporter =
     if (previous == null) new ConsoleReporter() else previous.reporter
 
   def reporter: Reporter = myReporter
@@ -29,7 +34,7 @@ class TyperState(previous: TyperState /* | Null */) {
   /** A fresh type state with the same constraint as this one and the given reporter */
   def setReporter(reporter: Reporter): this.type = { myReporter = reporter; this }
 
-  private[this] var myConstraint: Constraint =
+  private var myConstraint: Constraint =
     if (previous == null) OrderingConstraint.empty
     else previous.constraint
 
@@ -48,7 +53,7 @@ class TyperState(previous: TyperState /* | Null */) {
   private val previousConstraint =
     if (previous == null) constraint else previous.constraint
 
-  private[this] var myIsCommittable = true
+  private var myIsCommittable = true
 
   def isCommittable: Boolean = myIsCommittable
 
@@ -57,7 +62,7 @@ class TyperState(previous: TyperState /* | Null */) {
   def isGlobalCommittable: Boolean =
     isCommittable && (previous == null || previous.isGlobalCommittable)
 
-  private[this] var isShared = false
+  private var isShared = false
 
   /** Mark typer state as shared (typically because it is the typer state of
    *  the creation context of a source definition that potentially still needs
@@ -65,17 +70,17 @@ class TyperState(previous: TyperState /* | Null */) {
    */
   def markShared(): Unit = isShared = true
 
-  private[this] var isCommitted = false
+  private var isCommitted = false
 
   /** A fresh typer state with the same constraint as this one. */
   def fresh(): TyperState =
     new TyperState(this).setReporter(new StoreReporter(reporter)).setCommittable(isCommittable)
 
   /** The uninstantiated variables */
-  def uninstVars: Seq[TypeVar] = constraint.uninstVars
+  def uninstVars: collection.Seq[TypeVar] = constraint.uninstVars
 
   /** The set of uninstantiated type variables which have this state as their owning state */
-  private[this] var myOwnedVars: TypeVars = SimpleIdentitySet.empty
+  private var myOwnedVars: TypeVars = SimpleIdentitySet.empty
   def ownedVars: TypeVars = myOwnedVars
   def ownedVars_=(vs: TypeVars): Unit = myOwnedVars = vs
 
@@ -85,15 +90,15 @@ class TyperState(previous: TyperState /* | Null */) {
   def uncommittedAncestor: TyperState =
     if (isCommitted) previous.uncommittedAncestor else this
 
-  private[this] var testReporter: TestReporter = null
+  private var testReporter: TestReporter = null
 
   /** Test using `op`. If current typerstate is shared, run `op` in a fresh exploration
    *  typerstate. If it is unshared, run `op` in current typerState, restoring typerState
    *  to previous state afterwards.
    */
-  def test[T](op: Context => T)(implicit ctx: Context): T =
+  def test[T](op: (given Context) => T)(implicit ctx: Context): T =
     if (isShared)
-      op(ctx.fresh.setExploreTyperState())
+      op(given ctx.fresh.setExploreTyperState())
     else {
       val savedConstraint = myConstraint
       val savedReporter = myReporter
@@ -101,15 +106,14 @@ class TyperState(previous: TyperState /* | Null */) {
       val savedCommitted = isCommitted
       myIsCommittable = false
       myReporter = {
-        if (testReporter == null || testReporter.inUse) {
+        if (testReporter == null || testReporter.inUse)
           testReporter = new TestReporter(reporter)
-        } else {
+        else
           testReporter.reset()
-        }
         testReporter.inUse = true
         testReporter
       }
-      try op(ctx)
+      try op(given ctx)
       finally {
         testReporter.inUse = false
         resetConstraintTo(savedConstraint)
@@ -138,11 +142,13 @@ class TyperState(previous: TyperState /* | Null */) {
    * many parts of dotty itself.
    */
   def commit()(implicit ctx: Context): Unit = {
+    Stats.record("typerState.commit")
     val targetState = ctx.typerState
+    if (constraint ne targetState.constraint)
+      constr.println(i"committing $this to $targetState, fromConstr = $constraint, toConstr = ${targetState.constraint}")
     assert(isCommittable)
-    targetState.constraint =
-      if (targetState.constraint eq previousConstraint) constraint
-      else targetState.constraint & (constraint, otherHasErrors = reporter.errorsReported)
+    if (targetState.constraint eq previousConstraint) targetState.constraint = constraint
+    else targetState.mergeConstraintWith(this)
     constraint foreachTypeVar { tvar =>
       if (tvar.owningState.get eq this) tvar.owningState = new WeakReference(targetState)
     }
@@ -151,6 +157,9 @@ class TyperState(previous: TyperState /* | Null */) {
     reporter.flush()
     isCommitted = true
   }
+
+  def mergeConstraintWith(that: TyperState)(implicit ctx: Context): Unit =
+    constraint = constraint & (that.constraint, otherHasErrors = that.reporter.errorsReported)
 
   /** Make type variable instances permanent by assigning to `inst` field if
    *  type variable instantiation cannot be retracted anymore. Then, remove
@@ -172,7 +181,12 @@ class TyperState(previous: TyperState /* | Null */) {
       constraint = constraint.remove(poly)
   }
 
-  override def toString: String = s"TS[$id]"
+  override def toString: String = {
+    def ids(state: TyperState): List[String] =
+      s"${state.id}${if (state.isCommittable) "" else "X"}" ::
+        (if (state.previous == null) Nil else ids(state.previous))
+    s"TS[${ids(this).mkString(", ")}]"
+  }
 
   def stateChainStr: String = s"$this${if (previous == null) "" else previous.stateChainStr}"
 }

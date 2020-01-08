@@ -3,394 +3,416 @@ package reflect
 
 trait TypeOrBoundsOps extends Core {
 
-  implicit def TypeDeco(tpe: Type): TypeAPI
-
-  implicit def ConstantTypeDeco(x: ConstantType): Type.ConstantTypeAPI
-
-  implicit def SymRefDeco(x: SymRef): Type.SymRefAPI
-
-  implicit def TermRefDeco(x: TermRef): Type.TermRefAPI
-
-  implicit def TypeRefDeco(x: TypeRef): Type.TypeRefAPI
-
-  implicit def SuperTypeDeco(x: SuperType): Type.SuperTypeAPI
-
-  implicit def RefinementDeco(x: Refinement): Type.RefinementAPI
-
-  implicit def AppliedTypeDeco(x: AppliedType): Type.AppliedTypeAPI
-
-  implicit def AnnotatedTypeDeco(x: AnnotatedType): Type.AnnotatedTypeAPI
-
-  implicit def AndTypeDeco(x: AndType): Type.AndTypeAPI
-
-  implicit def OrTypeDeco(x: OrType): Type.OrTypeAPI
-
-  implicit def MatchTypeDeco(x: MatchType): Type.MatchTypeAPI
-
-  implicit def ByNameTypeDeco(x: ByNameType): Type.ByNameTypeAPI
-
-  implicit def ParamRefDeco(x: ParamRef): Type.ParamRefAPI
-
-  implicit def ThisTypeDeco(x: ThisType): Type.ThisTypeAPI
-
-  implicit def RecursiveThisDeco(x: RecursiveThis): Type.RecursiveThisAPI
-
-  implicit def RecursiveTypeDeco(x: RecursiveType): Type.RecursiveTypeAPI
-
-  implicit def MethodTypeDeco(x: MethodType): Type.MethodTypeAPI
-
-  implicit def PolyTypeDeco(x: PolyType): Type.PolyTypeAPI
-
-  implicit def TypeLambdaDeco(x: TypeLambda): Type.TypeLambdaAPI
-
-  implicit def TypeBoundsDeco(bounds: TypeBounds): TypeBoundsAPI
-  
   // ----- Types ----------------------------------------------------
 
   def typeOf[T: scala.quoted.Type]: Type
 
-  trait TypeAPI {
-    def =:=(other: Type)(implicit ctx: Context): Boolean
-    def <:<(other: Type)(implicit ctx: Context): Boolean
-    def widen(implicit ctx: Context): Type
+  given TypeOps: extension (self: Type) {
+
+    /** Is `self` type the same as `that` type?
+     *  This is the case iff `self <:< that` and `that <:< self`.
+     */
+    def =:=(that: Type)(given ctx: Context): Boolean = internal.Type_isTypeEq(self)(that)
+
+    /** Is this type a subtype of that type? */
+    def <:<(that: Type)(given ctx: Context): Boolean = internal.Type_isSubType(self)(that)
+
+    /** Widen from singleton type to its underlying non-singleton
+     *  base type by applying one or more `underlying` dereferences,
+     *  Also go from => T to T.
+     *  Identity for all other types. Example:
+     *
+     *  class Outer { class C ; val x: C }
+     *  def o: Outer
+     *  <o.x.type>.widen = o.C
+     */
+    def widen(given ctx: Context): Type = internal.Type_widen(self)
+
+    /** Widen from TermRef to its underlying non-termref
+     *  base type, while also skipping `=>T` types.
+     */
+    def widenTermRefExpr(given ctx: Context): Type = internal.Type_widenTermRefExpr(self)
+
+    /** Follow aliases and dereferences LazyRefs, annotated types and instantiated
+     *  TypeVars until type is no longer alias type, annotated type, LazyRef,
+     *  or instantiated type variable.
+     */
+    def dealias(given ctx: Context): Type = internal.Type_dealias(self)
+
+    /** A simplified version of this type which is equivalent wrt =:= to this type.
+     *  Reduces typerefs, applied match types, and and or types.
+     */
+    def simplified(given ctx: Context): Type = internal.Type_simplified(self)
+
+    def classSymbol(given ctx: Context): Option[Symbol] = internal.Type_classSymbol(self)
+    def typeSymbol(given ctx: Context): Symbol = internal.Type_typeSymbol(self)
+    def termSymbol(given ctx: Context): Symbol = internal.Type_termSymbol(self)
+    def isSingleton(given ctx: Context): Boolean = internal.Type_isSingleton(self)
+    def memberType(member: Symbol)(given ctx: Context): Type = internal.Type_memberType(self)(member)
+
+    /** Is this type an instance of a non-bottom subclass of the given class `cls`? */
+    def derivesFrom(cls: Symbol)(given ctx: Context): Boolean =
+      internal.Type_derivesFrom(self)(cls)
+
+    /** Is this type a function type?
+     *
+     *  @return true if the dealised type of `self` without refinement is `FunctionN[T1, T2, ..., Tn]`
+     *
+     *  @note The function
+     *
+     *     - returns true for `given Int => Int` and `erased Int => Int`
+     *     - returns false for `List[Int]`, despite that `List[Int] <:< Int => Int`.
+     */
+    def isFunctionType(given ctx: Context): Boolean = internal.Type_isFunctionType(self)
+
+    /** Is this type an implicit function type?
+     *
+     *  @see `isFunctionType`
+     */
+    def isImplicitFunctionType(given ctx: Context): Boolean = internal.Type_isImplicitFunctionType(self)
+
+    /** Is this type an erased function type?
+     *
+     *  @see `isFunctionType`
+     */
+    def isErasedFunctionType(given ctx: Context): Boolean = internal.Type_isErasedFunctionType(self)
+
+    /** Is this type a dependent function type?
+     *
+     *  @see `isFunctionType`
+     */
+    def isDependentFunctionType(given ctx: Context): Boolean = internal.Type_isDependentFunctionType(self)
   }
 
-  val IsType: IsTypeModule
-  abstract class IsTypeModule {
-    def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[Type]
+  given (given Context): IsInstanceOf[Type] = internal.isInstanceOfType
+
+  object IsType
+    @deprecated("Use _: Type", "")
+    def unapply(x: Type)(given ctx: Context): Option[Type] =
+      internal.isInstanceOfType.unapply(x)
+
+  object Type {
+    def apply(clazz: Class[_])(given ctx: Context): Type =
+      internal.Type_apply(clazz)
   }
 
-  val Type: TypeModule
-  abstract class TypeModule {
+  given (given Context): IsInstanceOf[ConstantType] = internal.isInstanceOfConstantType
 
-    val IsConstantType: IsConstantTypeModule
-    abstract class IsConstantTypeModule {
-      /** Matches any ConstantType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[ConstantType]
-    }
+  object IsConstantType
+    @deprecated("Use _: ConstantType", "")
+    def unapply(x: ConstantType)(given ctx: Context): Option[ConstantType] = Some(x)
 
-    trait ConstantTypeAPI {
-      def value(implicit ctx: Context): Any
-    }
+  object ConstantType {
+    def unapply(x: ConstantType)(given ctx: Context): Option[Constant] = Some(x.constant)
+  }
 
-    val ConstantType: ConstantTypeModule
-    abstract class ConstantTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[Constant]
-    }
+  given ConstantTypeOps: extension (self: ConstantType) {
+    def constant(given ctx: Context): Constant = internal.ConstantType_constant(self)
+  }
 
-    val IsSymRef: IsSymRefModule
-    abstract class IsSymRefModule {
-      /** Matches any SymRef and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[SymRef]
-    }
+  given (given Context): IsInstanceOf[TermRef] = internal.isInstanceOfTermRef
 
-    trait SymRefAPI {
-      def qualifier(implicit ctx: Context): TypeOrBounds /* Type | NoPrefix */
-    }
+  object IsTermRef
+    @deprecated("Use _: TermRef", "")
+    def unapply(x: TermRef)(given ctx: Context): Option[TermRef] = Some(x)
 
-    val SymRef: SymRefModule
-    abstract class SymRefModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Symbol, TypeOrBounds /* Type | NoPrefix */)]
-    }
+  object TermRef {
+    def apply(qual: TypeOrBounds, name: String)(given ctx: Context): TermRef =
+      internal.TermRef_apply(qual, name)
+    def unapply(x: TermRef)(given ctx: Context): Option[(TypeOrBounds /* Type | NoPrefix */, String)] =
+      Some((x.qualifier, x.name))
+  }
 
-    val IsTermRef: IsTermRefModule
-    abstract class IsTermRefModule {
-      /** Matches any TermRef and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[TermRef]
-    }
+  given TermRefOps: extension (self: TermRef) {
+    def qualifier(given ctx: Context): TypeOrBounds /* Type | NoPrefix */ = internal.TermRef_qualifier(self)
+    def name(given ctx: Context): String = internal.TermRef_name(self)
+  }
 
-    trait TermRefAPI {
-      def qualifier(implicit ctx: Context): TypeOrBounds /* Type | NoPrefix */
-    }
+  given (given Context): IsInstanceOf[TypeRef] = internal.isInstanceOfTypeRef
 
-    val TermRef: TermRefModule
-    abstract class TermRefModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(String, TypeOrBounds /* Type | NoPrefix */)]
-    }
+  object IsTypeRef
+    @deprecated("Use _: TypeRef", "")
+    def unapply(x: TypeRef)(given ctx: Context): Option[TypeRef] = Some(x)
 
-    val IsTypeRef: IsTypeRefModule
-    abstract class IsTypeRefModule {
-      /** Matches any TypeRef and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[TypeRef]
-    }
+  object TypeRef {
+    def unapply(x: TypeRef)(given ctx: Context): Option[(TypeOrBounds /* Type | NoPrefix */, String)] =
+      Some((x.qualifier, x.name))
+  }
 
-    trait TypeRefAPI {
-      def name(implicit ctx: Context): String
-      def qualifier(implicit ctx: Context): TypeOrBounds /* Type | NoPrefix */
-    }
+  given TypeRefOps: extension (self: TypeRef) {
+    def qualifier(given ctx: Context): TypeOrBounds /* Type | NoPrefix */ = internal.TypeRef_qualifier(self)
+    def name(given ctx: Context): String = internal.TypeRef_name(self)
+  }
 
-    val TypeRef: TypeRefModule
-    abstract class TypeRefModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(String, TypeOrBounds /* Type | NoPrefix */)]
-    }
+  given (given Context): IsInstanceOf[SuperType] = internal.isInstanceOfSuperType
 
-    val IsSuperType: IsSuperTypeModule
-    abstract class IsSuperTypeModule {
-      /** Matches any SuperType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[SuperType]
-    }
+  object IsSuperType
+    @deprecated("Use _: SuperType", "")
+    def unapply(x: SuperType)(given ctx: Context): Option[SuperType] = Some(x)
 
-    trait SuperTypeAPI {
-      def thistpe(implicit ctx: Context): Type
-      def supertpe(implicit ctx: Context): Type
-    }
+  object SuperType {
+    def unapply(x: SuperType)(given ctx: Context): Option[(Type, Type)] =
+      Some((x.thistpe, x.supertpe))
+  }
 
-    val SuperType: SuperTypeModule
-    abstract class SuperTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, Type)]
-    }
+  given SuperTypeOps: extension (self: SuperType) {
+    def thistpe(given ctx: Context): Type = internal.SuperType_thistpe(self)
+    def supertpe(given ctx: Context): Type = internal.SuperType_supertpe(self)
+  }
 
-    val IsRefinement: IsRefinementModule
-    abstract class IsRefinementModule {
-      /** Matches any Refinement and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[Refinement]
-    }
+  given (given Context): IsInstanceOf[Refinement] = internal.isInstanceOfRefinement
 
-    trait RefinementAPI {
-      def parent(implicit ctx: Context): Type
-      def name(implicit ctx: Context): String
-      def info(implicit ctx: Context): TypeOrBounds
-    }
+  object IsRefinement
+    @deprecated("Use _: Refinement", "")
+    def unapply(x: Refinement)(given ctx: Context): Option[Refinement] = Some(x)
 
-    val Refinement: RefinementModule
-    abstract class RefinementModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, String, TypeOrBounds /* Type | TypeBounds */)]
-    }
+  object Refinement {
+    def apply(parent: Type, name: String, info: TypeOrBounds /* Type | TypeBounds */)(given ctx: Context): Refinement =
+      internal.Refinement_apply(parent, name, info)
 
-    val IsAppliedType: IsAppliedTypeModule
-    abstract class IsAppliedTypeModule {
-      /** Matches any AppliedType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[AppliedType]
-    }
+    def unapply(x: Refinement)(given ctx: Context): Option[(Type, String, TypeOrBounds /* Type | TypeBounds */)] =
+      Some((x.parent, x.name, x.info))
+  }
 
-    trait AppliedTypeAPI {
-      def tycon(implicit ctx: Context): Type
-      def args(implicit ctx: Context): List[TypeOrBounds /* Type | TypeBounds */]
-    }
+  given RefinementOps: extension (self: Refinement) {
+    def parent(given ctx: Context): Type = internal.Refinement_parent(self)
+    def name(given ctx: Context): String = internal.Refinement_name(self)
+    def info(given ctx: Context): TypeOrBounds = internal.Refinement_info(self)
+  }
 
-    val AppliedType: AppliedTypeModule
-    abstract class AppliedTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, List[TypeOrBounds /* Type | TypeBounds */])]
-    }
+  given (given Context): IsInstanceOf[AppliedType] = internal.isInstanceOfAppliedType
 
-    val IsAnnotatedType: IsAnnotatedTypeModule
-    abstract class IsAnnotatedTypeModule {
-      /** Matches any AnnotatedType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[AnnotatedType]
-    }
+  object IsAppliedType
+    @deprecated("Use _: AppliedType", "")
+    def unapply(x: AppliedType)(given ctx: Context): Option[AppliedType] = Some(x)
 
-    trait AnnotatedTypeAPI {
-      def underlying(implicit ctx: Context): Type
-      def annot(implicit ctx: Context): Term
-    }
+  object AppliedType {
+    def apply(tycon: Type, args: List[TypeOrBounds])(given ctx: Context): AppliedType =
+      internal.AppliedType_apply(tycon, args)
+    def unapply(x: AppliedType)(given ctx: Context): Option[(Type, List[TypeOrBounds /* Type | TypeBounds */])] =
+      Some((x.tycon, x.args))
+  }
 
-    val AnnotatedType: AnnotatedTypeModule
-    abstract class AnnotatedTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, Term)]
-    }
+  given AppliedTypeOps: extension (self: AppliedType) {
+    def tycon(given ctx: Context): Type = internal.AppliedType_tycon(self)
+    def args(given ctx: Context): List[TypeOrBounds /* Type | TypeBounds */] = internal.AppliedType_args(self)
+  }
 
-    val IsAndType: IsAndTypeModule
-    abstract class IsAndTypeModule {
-      /** Matches any AndType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[AndType]
-    }
+  given (given Context): IsInstanceOf[AnnotatedType] = internal.isInstanceOfAnnotatedType
 
-    trait AndTypeAPI {
-      def left(implicit ctx: Context): Type
-      def right(implicit ctx: Context): Type
-    }
+  object IsAnnotatedType
+    @deprecated("Use _: AnnotatedType", "")
+    def unapply(x: AnnotatedType)(given ctx: Context): Option[AnnotatedType] = Some(x)
 
-    val AndType: AndTypeModule
-    abstract class AndTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, Type)]
-    }
+  object AnnotatedType {
+    def unapply(x: AnnotatedType)(given ctx: Context): Option[(Type, Term)] =
+      Some((x.underlying, x.annot))
+  }
 
-    val IsOrType: IsOrTypeModule
-    abstract class IsOrTypeModule {
-      /** Matches any OrType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[OrType]
-    }
+  given AnnotatedTypeOps: extension (self: AnnotatedType) {
+    def underlying(given ctx: Context): Type = internal.AnnotatedType_underlying(self)
+    def annot(given ctx: Context): Term = internal.AnnotatedType_annot(self)
+  }
 
-    trait OrTypeAPI {
-      def left(implicit ctx: Context): Type
-      def right(implicit ctx: Context): Type
-    }
+  given (given Context): IsInstanceOf[AndType] = internal.isInstanceOfAndType
 
-    val OrType: OrTypeModule
-    abstract class OrTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, Type)]
-    }
+  object IsAndType
+    @deprecated("Use _: AndType", "")
+    def unapply(x: AndType)(given ctx: Context): Option[AndType] = Some(x)
 
-    val IsMatchType: IsMatchTypeModule
-    abstract class IsMatchTypeModule {
-      /** Matches any MatchType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[MatchType]
-    }
+  object AndType {
+    def unapply(x: AndType)(given ctx: Context): Option[(Type, Type)] =
+      Some((x.left, x.right))
+  }
 
-    trait MatchTypeAPI {
-      def bound(implicit ctx: Context): Type
-      def scrutinee(implicit ctx: Context): Type
-      def cases(implicit ctx: Context): List[Type]
-    }
+  given AndTypeOps: extension (self: AndType) {
+    def left(given ctx: Context): Type = internal.AndType_left(self)
+    def right(given ctx: Context): Type = internal.AndType_right(self)
+  }
 
-    val MatchType: MatchTypeModule
-    abstract class MatchTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, Type, List[Type])]
-    }
+  given (given Context): IsInstanceOf[OrType] = internal.isInstanceOfOrType
 
-    val IsByNameType: IsByNameTypeModule
-    abstract class IsByNameTypeModule {
-      /** Matches any ByNameType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[ByNameType]
-    }
+  object IsOrType
+    @deprecated("Use _: OrType", "")
+    def unapply(x: OrType)(given ctx: Context): Option[OrType] = Some(x)
 
-    trait ByNameTypeAPI {
-      def underlying(implicit ctx: Context): Type
-    }
+  object OrType {
+    def unapply(x: OrType)(given ctx: Context): Option[(Type, Type)] =
+      Some((x.left, x.right))
+  }
 
-    val ByNameType: ByNameTypeModule
-    abstract class ByNameTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[Type]
-    }
+  given OrTypeOps: extension (self: OrType) {
+    def left(given ctx: Context): Type = internal.OrType_left(self)
+    def right(given ctx: Context): Type = internal.OrType_right(self)
+  }
 
-    val IsParamRef: IsParamRefModule
-    abstract class IsParamRefModule {
-      /** Matches any ParamRef and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[ParamRef]
-    }
+  given (given Context): IsInstanceOf[MatchType] = internal.isInstanceOfMatchType
 
-    trait ParamRefAPI {
-      def binder(implicit ctx: Context): LambdaType[TypeOrBounds]
-      def paramNum(implicit ctx: Context): Int
-    }
+  object IsMatchType
+    @deprecated("Use _: MatchType", "")
+    def unapply(x: MatchType)(given ctx: Context): Option[MatchType] = Some(x)
 
-    val ParamRef: ParamRefModule
-    abstract class ParamRefModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(LambdaType[TypeOrBounds], Int)]
-    }
+  object MatchType {
+    def unapply(x: MatchType)(given ctx: Context): Option[(Type, Type, List[Type])] =
+      Some((x.bound, x.scrutinee, x.cases))
+  }
 
-    val IsThisType: IsThisTypeModule
-    abstract class IsThisTypeModule {
-      /** Matches any ThisType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[ThisType]
-    }
+  given MatchTypeOps: extension (self: MatchType) {
+    def bound(given ctx: Context): Type = internal.MatchType_bound(self)
+    def scrutinee(given ctx: Context): Type = internal.MatchType_scrutinee(self)
+    def cases(given ctx: Context): List[Type] = internal.MatchType_cases(self)
+  }
 
-    trait ThisTypeAPI {
-      def underlying(implicit ctx: Context): Type
-    }
+  given (given Context): IsInstanceOf[ByNameType] = internal.isInstanceOfByNameType
 
-    val ThisType: ThisTypeModule
-    abstract class ThisTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[Type]
-    }
+  object IsByNameType
+    @deprecated("Use _: ByNameType", "")
+    def unapply(x: ByNameType)(given ctx: Context): Option[ByNameType] = Some(x)
 
-    val IsRecursiveThis: IsRecursiveThisModule
-    abstract class IsRecursiveThisModule {
-      /** Matches any RecursiveThis and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[RecursiveThis]
-    }
+  object ByNameType {
+    def unapply(x: ByNameType)(given ctx: Context): Option[Type] = Some(x.underlying)
+  }
 
-    trait RecursiveThisAPI {
-      def binder(implicit ctx: Context): RecursiveType
-    }
+  given ByNameTypeOps: extension (self: ByNameType) {
+    def underlying(given ctx: Context): Type = internal.ByNameType_underlying(self)
+  }
 
-    val RecursiveThis: RecursiveThisModule
-    abstract class RecursiveThisModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[RecursiveType]
-    }
+  given (given Context): IsInstanceOf[ParamRef] = internal.isInstanceOfParamRef
 
-    val IsRecursiveType: IsRecursiveTypeModule
-    abstract class IsRecursiveTypeModule {
-      /** Matches any RecursiveType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[RecursiveType]
-    }
+  object IsParamRef
+    @deprecated("Use _: ParamRef", "")
+    def unapply(x: ParamRef)(given ctx: Context): Option[ParamRef] = Some(x)
 
-    trait RecursiveTypeAPI {
-      def underlying(implicit ctx: Context): Type
-    }
+  object ParamRef {
+    def unapply(x: ParamRef)(given ctx: Context): Option[(LambdaType[TypeOrBounds], Int)] =
+      Some((x.binder, x.paramNum))
+  }
 
-    val RecursiveType: RecursiveTypeModule
-    abstract class RecursiveTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[Type]
-    }
+  given ParamRefOps: extension (self: ParamRef) {
+    def binder(given ctx: Context): LambdaType[TypeOrBounds] = internal.ParamRef_binder(self)
+    def paramNum(given ctx: Context): Int = internal.ParamRef_paramNum(self)
+  }
 
-    val IsMethodType: IsMethodTypeModule
-    abstract class IsMethodTypeModule {
-      /** Matches any MethodType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[MethodType]
-    }
+  given (given Context): IsInstanceOf[ThisType] = internal.isInstanceOfThisType
 
-    trait MethodTypeAPI {
-      def isImplicit: Boolean
-      def isErased: Boolean
-      def paramNames(implicit ctx: Context): List[String]
-      def paramTypes(implicit ctx: Context): List[Type]
-      def resType(implicit ctx: Context): Type
-    }
+  object IsThisType
+    @deprecated("Use _: ThisType", "")
+    def unapply(x: ThisType)(given ctx: Context): Option[ThisType] = Some(x)
 
-    val MethodType: MethodTypeModule
-    abstract class MethodTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(List[String], List[Type], Type)]
-    }
+  object ThisType {
+    def unapply(x: ThisType)(given ctx: Context): Option[Type] = Some(x.tref)
+  }
 
-    val IsPolyType: IsPolyTypeModule
-    abstract class IsPolyTypeModule {
-      /** Matches any PolyType and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[PolyType]
-    }
+  given ThisTypeOps: extension (self: ThisType) {
+    def tref(given ctx: Context): Type = internal.ThisType_tref(self)
+  }
 
-    trait PolyTypeAPI {
-      def paramNames(implicit ctx: Context): List[String]
-      def paramBounds(implicit ctx: Context): List[TypeBounds]
-      def resType(implicit ctx: Context): Type
-    }
+  given (given Context): IsInstanceOf[RecursiveThis] = internal.isInstanceOfRecursiveThis
 
-    val PolyType: PolyTypeModule
-    abstract class PolyTypeModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(List[String], List[TypeBounds], Type)]
-    }
+  object IsRecursiveThis
+    @deprecated("Use _: RecursiveThis", "")
+    def unapply(x: RecursiveThis)(given ctx: Context): Option[RecursiveThis] = Some(x)
 
-    val IsTypeLambda: IsTypeLambdaModule
-    abstract class IsTypeLambdaModule {
-      /** Matches any TypeLambda and returns it */
-      def unapply(tpe: TypeOrBounds)(implicit ctx: Context): Option[TypeLambda]
-    }
+  object RecursiveThis {
+    def unapply(x: RecursiveThis)(given ctx: Context): Option[RecursiveType] = Some(x.binder)
+  }
 
-    trait TypeLambdaAPI {
-      def paramNames(implicit ctx: Context): List[String]
-      def paramBounds(implicit ctx: Context): List[TypeBounds]
-      def resType(implicit ctx: Context): Type
-    }
+  given RecursiveThisOps: extension (self: RecursiveThis) {
+    def binder(given ctx: Context): RecursiveType = internal.RecursiveThis_binder(self)
+  }
 
-    val TypeLambda: TypeLambdaModule
-    abstract class TypeLambdaModule {
-      def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(List[String], List[TypeBounds], Type)]
-    }
+  given (given Context): IsInstanceOf[RecursiveType] = internal.isInstanceOfRecursiveType
 
+  object IsRecursiveType
+    @deprecated("Use _: RecursiveType", "")
+    def unapply(x: RecursiveType)(given ctx: Context): Option[RecursiveType] = Some(x)
+
+  object RecursiveType {
+    def unapply(x: RecursiveType)(given ctx: Context): Option[Type] = Some(x.underlying)
+  }
+
+  given RecursiveTypeOps: extension (self: RecursiveType) {
+    def underlying(given ctx: Context): Type = internal.RecursiveType_underlying(self)
+  }
+
+  given (given Context): IsInstanceOf[MethodType] = internal.isInstanceOfMethodType
+
+  object IsMethodType
+    @deprecated("Use _: MethodType", "")
+    def unapply(x: MethodType)(given ctx: Context): Option[MethodType] = Some(x)
+
+  object MethodType {
+    def apply(paramNames: List[String])(paramInfosExp: MethodType => List[Type], resultTypeExp: MethodType => Type): MethodType =
+      internal.MethodType_apply(paramNames)(paramInfosExp, resultTypeExp)
+
+    def unapply(x: MethodType)(given ctx: Context): Option[(List[String], List[Type], Type)] =
+      Some((x.paramNames, x.paramTypes, x.resType))
+  }
+
+  given MethodTypeOps: extension (self: MethodType) {
+    def isImplicit: Boolean = internal.MethodType_isImplicit(self)
+    def isErased: Boolean = internal.MethodType_isErased(self)
+    def paramNames(given ctx: Context): List[String] = internal.MethodType_paramNames(self)
+    def paramTypes(given ctx: Context): List[Type] = internal.MethodType_paramTypes(self)
+    def resType(given ctx: Context): Type = internal.MethodType_resType(self)
+  }
+
+  given (given Context): IsInstanceOf[PolyType] = internal.isInstanceOfPolyType
+
+  object IsPolyType
+    @deprecated("Use _: PolyType", "")
+    def unapply(x: PolyType)(given ctx: Context): Option[PolyType] = Some(x)
+
+  object PolyType {
+    def unapply(x: PolyType)(given ctx: Context): Option[(List[String], List[TypeBounds], Type)] =
+      Some((x.paramNames, x.paramBounds, x.resType))
+  }
+
+  given PolyTypeOps: extension (self: PolyType) {
+    def paramNames(given ctx: Context): List[String] = internal.PolyType_paramNames(self)
+    def paramBounds(given ctx: Context): List[TypeBounds] = internal.PolyType_paramBounds(self)
+    def resType(given ctx: Context): Type = internal.PolyType_resType(self)
+  }
+
+  given (given Context): IsInstanceOf[TypeLambda] = internal.isInstanceOfTypeLambda
+
+  object IsTypeLambda
+    @deprecated("Use _: TypeLambda", "")
+    def unapply(x: TypeLambda)(given ctx: Context): Option[TypeLambda] = Some(x)
+
+  object TypeLambda {
+    def unapply(x: TypeLambda)(given ctx: Context): Option[(List[String], List[TypeBounds], Type)] =
+      Some((x.paramNames, x.paramBounds, x.resType))
+  }
+
+  given TypeLambdaOps: extension (self: TypeLambda) {
+    def paramNames(given ctx: Context): List[String] = internal.TypeLambda_paramNames(self)
+    def paramBounds(given ctx: Context): List[TypeBounds] = internal.TypeLambda_paramBounds(self)
+    def resType(given ctx: Context): Type = internal.TypeLambda_resType(self)
   }
 
   // ----- TypeBounds -----------------------------------------------
 
-  val IsTypeBounds: IsTypeBoundsModule
-  abstract class IsTypeBoundsModule {
-    def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[TypeBounds]
+  given (given Context): IsInstanceOf[TypeBounds] = internal.isInstanceOfTypeBounds
+
+  object IsTypeBounds
+    @deprecated("Use _: TypeBounds", "")
+    def unapply(x: TypeBounds)(given ctx: Context): Option[TypeBounds] = Some(x)
+
+  object TypeBounds {
+    def unapply(x: TypeBounds)(given ctx: Context): Option[(Type, Type)] = Some((x.low, x.hi))
   }
 
-  val TypeBounds: TypeBoundsModule
-  abstract class TypeBoundsModule {
-    def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Option[(Type, Type)]
-  }
-
-  trait TypeBoundsAPI {
-    def low(implicit ctx: Context): Type
-    def hi(implicit ctx: Context): Type
+  given TypeBoundsOps: extension (self: TypeBounds) {
+    def low(given ctx: Context): Type = internal.TypeBounds_low(self)
+    def hi(given ctx: Context): Type = internal.TypeBounds_hi(self)
   }
 
   // ----- NoPrefix -------------------------------------------------
 
-  val NoPrefix: NoPrefixModule
-  abstract class NoPrefixModule {
-    def unapply(typeOrBounds: TypeOrBounds)(implicit ctx: Context): Boolean
-  }
+  given (given Context): IsInstanceOf[NoPrefix] = internal.isInstanceOfNoPrefix
+
+  object NoPrefix
+    def unapply(x: NoPrefix)(given ctx: Context): Boolean = true
 
 }

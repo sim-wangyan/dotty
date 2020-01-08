@@ -17,7 +17,7 @@ object Test {
   type T1 = _ // error
   type T2 = _[Int] // error
   type T3 = _ { type S } // error
-  type T4 = [X] => _ // error
+  type T4 = [X] =>> _ // error
 
   // Open questions:
   type T5 = TypeConstr[_ { type S }] // error
@@ -41,8 +41,8 @@ object Test {
 
   type T19 = (_ with Int) @ annotation.tailrec // error
   type T20 = (Int with _) @ annotation.tailrec // error
-  type T21 = Int @ (_ with annotation.tailrec) // error // error
-  type T22 = Int @ (annotation.tailrec with _) // error // error
+  type T21 = Int @ (_ with annotation.tailrec) // error
+  type T22 = Int @ (annotation.tailrec with _) // error
 
   type T23 = (_ & Int) @ annotation.tailrec // error
   type T24 = (Int & _) @ annotation.tailrec // error

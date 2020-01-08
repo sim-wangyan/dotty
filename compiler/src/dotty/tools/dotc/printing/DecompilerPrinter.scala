@@ -32,7 +32,7 @@ class DecompilerPrinter(_ctx: Context) extends RefinedPrinter(_ctx) {
 
   override protected def packageDefText(tree: PackageDef): Text = {
     val stats = tree.stats.filter {
-      case vdef: ValDef[_] => !vdef.symbol.is(Module)
+      case vdef: ValDef[?] => !vdef.symbol.is(Module)
       case _ => true
     }
     val statsText = stats match {
@@ -48,7 +48,7 @@ class DecompilerPrinter(_ctx: Context) extends RefinedPrinter(_ctx) {
 
   override protected def templateText(tree: TypeDef, impl: Template): Text = {
     val decl =
-      if (!tree.mods.is(Module)) modText(tree.mods, tree.symbol, keywordStr(if ((tree).mods is Trait) "trait" else "class"), isType = true)
+      if (!tree.mods.is(Module)) modText(tree.mods, tree.symbol, keywordStr(if (tree.mods.is(Trait)) "trait" else "class"), isType = true)
       else modText(tree.mods, tree.symbol, keywordStr("object"), isType = false)
     decl ~~ typeText(nameIdText(tree)) ~ withEnclosingDef(tree) { toTextTemplate(impl) } ~ ""
   }
@@ -70,12 +70,11 @@ class DecompilerPrinter(_ctx: Context) extends RefinedPrinter(_ctx) {
       val bodyText = " {" ~~ toTextGlobal(impl.body, "\n") ~ "}"
       parentsText.provided(parents.nonEmpty) ~ bodyText
     }
-    else super.toTextTemplate(impl.copy(parentsOrDerived = parents, preBody = body), ofNew)
+    else super.toTextTemplate(untpd.cpy.Template(impl)(parents = parents, body = body), ofNew)
   }
 
-  override protected def typeApplyText[T >: Untyped](tree: TypeApply[T]): Text = {
-    if (tree.symbol eq defn.QuotedExpr_apply) "'"
-    else if (tree.symbol eq defn.QuotedType_apply) "'[" ~ toTextGlobal(tree.args, ", ") ~ "]"
+  override protected def typeApplyText[T >: Untyped](tree: TypeApply[T]): Text =
+    if (tree.symbol eq defn.InternalQuoted_exprQuote) "'"
+    else if (tree.symbol eq defn.InternalQuoted_typeQuote) "'[" ~ toTextGlobal(tree.args, ", ") ~ "]"
     else super.typeApplyText(tree)
-  }
 }

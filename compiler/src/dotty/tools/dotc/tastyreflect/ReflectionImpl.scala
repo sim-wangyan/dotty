@@ -1,24 +1,24 @@
 package dotty.tools.dotc.tastyreflect
 
+import dotty.tools.dotc.ast.tpd
 import dotty.tools.dotc.core._
+import dotty.tools.dotc.core.Contexts._
 
-class ReflectionImpl(val rootContext: Contexts.Context)
-    extends scala.tasty.Reflection
-    with CoreImpl
-    with CaseDefOpsImpl
-    with ConstantOpsImpl
-    with ContextOpsImpl
-    with FlagsOpsImpl
-    with IdOpsImpl
-    with ImportSelectorOpsImpl
-    with QuotedOpsImpl
-    with PatternOpsImpl
-    with PositionOpsImpl
-    with PrintersImpl
-    with SettingsOpsImpl
-    with SignatureOpsImpl
-    with StandardDefinitions
-    with SymbolOpsImpl
-    with TreeOpsImpl
-    with TypeOrBoundsTreesOpsImpl
-    with TypeOrBoundsOpsImpl
+import scala.quoted.show.SyntaxHighlight
+
+object ReflectionImpl {
+
+  def apply(rootContext: Contexts.Context): scala.tasty.Reflection =
+    new scala.tasty.Reflection(new ReflectionCompilerInterface(rootContext))
+
+  def showTree(tree: tpd.Tree)(implicit ctx: Contexts.Context): String = {
+    val refl = new scala.tasty.Reflection(new ReflectionCompilerInterface(MacroExpansion.context(tree)))
+    val reflCtx = ctx.asInstanceOf[refl.Context]
+    val reflTree = tree.asInstanceOf[refl.Tree]
+    val syntaxHighlight =
+      if (ctx.settings.color.value == "always") SyntaxHighlight.ANSI
+      else SyntaxHighlight.plain
+    new scala.tasty.reflect.SourceCodePrinter[refl.type](refl)(syntaxHighlight).showTree(reflTree)(given reflCtx)
+  }
+}
+

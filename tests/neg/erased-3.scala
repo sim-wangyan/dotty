@@ -22,7 +22,7 @@ object Test {
     u() // warn
     u() // OK
   }
-  erased def foo3(erased  a: Int): Int = {
+  erased def foo3(erased a: Int): Int = {
     foo0(u()) // OK
     foo1(u()) // OK
     foo2(u()) // OK

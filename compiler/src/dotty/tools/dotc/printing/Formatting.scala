@@ -23,23 +23,24 @@ object Formatting {
    *     against accidentally treating an interpolated value as a margin.
    */
   class StringFormatter(protected val sc: StringContext) {
-
     protected def showArg(arg: Any)(implicit ctx: Context): String = arg match {
       case arg: Showable =>
         try arg.show
         catch {
+          case ex: CyclicReference => "... (caught cyclic reference) ..."
           case NonFatal(ex)
           if !ctx.mode.is(Mode.PrintShowExceptions) &&
              !ctx.settings.YshowPrintErrors.value =>
-            s"[cannot display due to $ex, raw string = ${arg.toString}]"
+            val msg = ex match { case te: TypeError => te.toMessage case _ => ex.getMessage }
+            s"[cannot display due to $msg, raw string = ${arg.toString}]"
         }
       case _ => arg.toString
     }
 
     private def treatArg(arg: Any, suffix: String)(implicit ctx: Context): (Any, String) = arg match {
-      case arg: Seq[_] if suffix.nonEmpty && suffix.head == '%' =>
+      case arg: Seq[?] if suffix.nonEmpty && suffix.head == '%' =>
         val (rawsep, rest) = suffix.tail.span(_ != '%')
-        val sep = StringContext.treatEscapes(rawsep)
+        val sep = StringContext.processEscapes(rawsep)
         if (rest.nonEmpty) (arg.map(showArg).mkString(sep), rest.tail)
         else (arg, suffix)
       case _ =>
@@ -56,7 +57,7 @@ object Formatting {
         case head :: tail => (head.stripMargin, tail map stripTrailingPart)
         case Nil => ("", Nil)
       }
-      val (args1, suffixes1) = (args, suffixes).zipped.map(treatArg(_, _)).unzip
+      val (args1, suffixes1) = args.lazyZip(suffixes).map(treatArg(_, _)).unzip
       new StringContext(prefix :: suffixes1.toList: _*).s(args1: _*)
     }
   }
@@ -85,7 +86,7 @@ object Formatting {
       }
   }
 
-  private def wrapNonSensical(arg: Any /* Type | Symbol */, str: String)(implicit ctx: Context): String = {
+  private def wrapNonSensical(arg: Any, str: String)(implicit ctx: Context): String = {
     import MessageContainer._
     def isSensical(arg: Any): Boolean = arg match {
       case tpe: Type =>
@@ -102,40 +103,75 @@ object Formatting {
     else nonSensicalStartTag + str + nonSensicalEndTag
   }
 
-  private type Recorded = AnyRef /*Symbol | ParamRef | SkolemType */
+  private type Recorded = Symbol | ParamRef | SkolemType
 
-  private class Seen extends mutable.HashMap[String, List[Recorded]] {
+  private case class SeenKey(str: String, isType: Boolean)
+  private class Seen extends mutable.HashMap[SeenKey, List[Recorded]] {
 
-    override def default(key: String) = Nil
+    override def default(key: SeenKey) = Nil
 
-    def record(str: String, entry: Recorded)(implicit ctx: Context): String = {
+    def record(str: String, isType: Boolean, entry: Recorded)(implicit ctx: Context): String = {
+
+      /** If `e1` is an alias of another class of the same name, return the other
+       *  class symbol instead. This normalization avoids recording e.g. scala.List
+       *  and scala.collection.immutable.List as two different types
+       */
       def followAlias(e1: Recorded): Recorded = e1 match {
         case e1: Symbol if e1.isAliasType =>
           val underlying = e1.typeRef.underlyingClassRef(refinementOK = false).typeSymbol
           if (underlying.name == e1.name) underlying else e1
         case _ => e1
       }
+      val key = SeenKey(str, isType)
+      val existing = apply(key)
       lazy val dealiased = followAlias(entry)
-      var alts = apply(str).dropWhile(alt => dealiased ne followAlias(alt))
+
+      // alts: The alternatives in `existing` that are equal, or follow (an alias of) `entry`
+      var alts = existing.dropWhile(alt => dealiased ne followAlias(alt))
       if (alts.isEmpty) {
-        alts = entry :: apply(str)
-        update(str, alts)
+        alts = entry :: existing
+        update(key, alts)
       }
-      str + "'" * (alts.length - 1)
+      val suffix = alts.length match {
+        case 1 => ""
+        case n => n.toString.toCharArray.map {
+          case '0' => '⁰'
+          case '1' => '¹'
+          case '2' => '²'
+          case '3' => '³'
+          case '4' => '⁴'
+          case '5' => '⁵'
+          case '6' => '⁶'
+          case '7' => '⁷'
+          case '8' => '⁸'
+          case '9' => '⁹'
+        }.mkString
+      }
+      str + suffix
     }
   }
 
   private class ExplainingPrinter(seen: Seen)(_ctx: Context) extends RefinedPrinter(_ctx) {
+
+    /** True if printer should a source module instead of its module class */
+    private def useSourceModule(sym: Symbol): Boolean =
+      sym.is(ModuleClass, butNot = Package) && sym.sourceModule.exists && !_ctx.settings.YdebugNames.value
+
     override def simpleNameString(sym: Symbol): String =
-      if ((sym is ModuleClass) && sym.sourceModule.exists) simpleNameString(sym.sourceModule)
-      else seen.record(super.simpleNameString(sym), sym)
+      if (useSourceModule(sym)) simpleNameString(sym.sourceModule)
+      else seen.record(super.simpleNameString(sym), sym.isType, sym)
 
     override def ParamRefNameString(param: ParamRef): String =
-      seen.record(super.ParamRefNameString(param), param)
+      seen.record(super.ParamRefNameString(param), param.isInstanceOf[TypeParamRef], param)
 
     override def toTextRef(tp: SingletonType): Text = tp match {
-      case tp: SkolemType => seen.record(tp.repr.toString, tp)
+      case tp: SkolemType => seen.record(tp.repr.toString, isType = true, tp)
       case _ => super.toTextRef(tp)
+    }
+
+    override def toText(tp: Type): Text = tp match {
+      case tp: TypeRef if useSourceModule(tp.symbol) => Str("object ") ~ super.toText(tp)
+      case _ => super.toText(tp)
     }
   }
 
@@ -168,7 +204,7 @@ object Formatting {
       case sym: Symbol =>
         val info =
           if (ctx.gadt.contains(sym))
-            sym.info & ctx.gadt.bounds(sym)
+            sym.info & ctx.gadt.fullBounds(sym)
           else
             sym.info
         s"is a ${ctx.printer.kindString(sym)}${sym.showExtendedLocation}${addendum("bounds", info)}"
@@ -185,27 +221,30 @@ object Formatting {
   private def explanations(seen: Seen)(implicit ctx: Context): String = {
     def needsExplanation(entry: Recorded) = entry match {
       case param: TypeParamRef => ctx.typerState.constraint.contains(param)
-      case param: TermParamRef => false
+      case param: ParamRef     => false
       case skolem: SkolemType => true
       case sym: Symbol =>
-        ctx.gadt.contains(sym) && ctx.gadt.bounds(sym) != TypeBounds.empty
-      case _ =>
-        assert(false, "unreachable")
-        false
+        ctx.gadt.contains(sym) && ctx.gadt.fullBounds(sym) != TypeBounds.empty
     }
 
-    val toExplain: List[(String, Recorded)] = seen.toList.flatMap {
-      case (str, entry :: Nil) =>
-        if (needsExplanation(entry)) (str, entry) :: Nil else Nil
-      case (str, entries) =>
-        entries.map(alt => (seen.record(str, alt), alt))
+    val toExplain: List[(String, Recorded)] = seen.toList.flatMap { kvs =>
+      val res: List[(String, Recorded)] = kvs match {
+        case (key, entry :: Nil) =>
+          if (needsExplanation(entry)) (key.str, entry) :: Nil else Nil
+        case (key, entries) =>
+          for (alt <- entries) yield {
+            val tickedString = seen.record(key.str, key.isType, alt)
+            (tickedString, alt)
+          }
+      }
+      res // help the inferrencer out
     }.sortBy(_._1)
 
     def columnar(parts: List[(String, String)]): List[String] = {
       lazy val maxLen = parts.map(_._1.length).max
       parts.map {
         case (leader, trailer) =>
-          val variable = hl"$leader"
+          val variable = hl(leader)
           s"""$variable${" " * (maxLen - leader.length)} $trailer"""
       }
     }
@@ -228,9 +267,9 @@ object Formatting {
     * ex"disambiguate $tpe1 and $tpe2"
     * ```
     */
-  def explained(op: Context => String)(implicit ctx: Context): String = {
+  def explained(op: (given Context) => String)(implicit ctx: Context): String = {
     val seen = new Seen
-    val msg = op(explainCtx(seen))
+    val msg = op(given explainCtx(seen))
     val addendum = explanations(seen)
     if (addendum.isEmpty) msg else msg ++ "\n\n" ++ addendum
   }
@@ -275,4 +314,8 @@ object Formatting {
       case _ => (fnd, exp)
     }
   }
+
+  /** Explicit syntax highlighting */
+  def hl(s: String)(implicit ctx: Context): String =
+    SyntaxHighlighting.highlight(s)
 }

@@ -20,14 +20,12 @@ object ConstFold {
   def apply[T <: Tree](tree: T)(implicit ctx: Context): T = finish(tree) {
     tree match {
       case Apply(Select(xt, op), yt :: Nil) =>
-        xt.tpe.widenTermRefExpr.normalized match {
+        xt.tpe.widenTermRefExpr.normalized match
           case ConstantType(x) =>
-            yt.tpe.widenTermRefExpr match {
+            yt.tpe.widenTermRefExpr match
               case ConstantType(y) => foldBinop(op, x, y)
               case _ => null
-            }
           case _ => null
-        }
       case Select(xt, op) =>
         xt.tpe.widenTermRefExpr match {
           case ConstantType(x) => foldUnop(op, x)
@@ -48,12 +46,13 @@ object ConstFold {
       }
     }
 
-  @forceInline private def finish[T <: Tree](tree: T)(compX: => Constant)(implicit ctx: Context): T =
+  inline private def finish[T <: Tree](tree: T)(compX: => Constant)(implicit ctx: Context): T =
     try {
       val x = compX
       if (x ne null) tree.withType(ConstantType(x)).asInstanceOf[T]
       else tree
-    } catch {
+    }
+    catch {
       case _: ArithmeticException => tree   // the code will crash at runtime,
                                             // but that is better than the
                                             // compiler itself crashing
@@ -115,9 +114,9 @@ object ConstFold {
     case nme.OR  => Constant(x.longValue | y.longValue)
     case nme.XOR => Constant(x.longValue ^ y.longValue)
     case nme.AND => Constant(x.longValue & y.longValue)
-    case nme.LSL => Constant(x.longValue << y.longValue)
-    case nme.LSR => Constant(x.longValue >>> y.longValue)
-    case nme.ASR => Constant(x.longValue >> y.longValue)
+    case nme.LSL => if (x.tag <= IntTag) Constant(x.intValue << y.longValue.toInt) else Constant(x.longValue << y.longValue)
+    case nme.LSR => if (x.tag <= IntTag) Constant(x.intValue >>> y.longValue.toInt) else Constant(x.longValue >>> y.longValue)
+    case nme.ASR => if (x.tag <= IntTag) Constant(x.intValue >> y.longValue.toInt) else Constant(x.longValue >> y.longValue)
     case nme.EQ  => Constant(x.longValue == y.longValue)
     case nme.NE  => Constant(x.longValue != y.longValue)
     case nme.LT  => Constant(x.longValue < y.longValue)

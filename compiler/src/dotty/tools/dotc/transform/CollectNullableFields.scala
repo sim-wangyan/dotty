@@ -34,7 +34,7 @@ object CollectNullableFields {
  *    - belongs to a non trait-class
  *    - is private[this]
  *    - is not lazy
- *    - its type is nullable
+ *    - its type is nullable after erasure
  *    - is only used in a lazy val initializer
  *    - defined in the same class as the lazy val
  */
@@ -46,12 +46,12 @@ class CollectNullableFields extends MiniPhase {
   /** Running after `ElimByName` to see by names as nullable types. */
   override def runsAfter: Set[String] = Set(ElimByName.name)
 
-  private[this] sealed trait FieldInfo
-  private[this] case object NotNullable extends FieldInfo
-  private[this] case class Nullable(by: Symbol) extends FieldInfo
+  private sealed trait FieldInfo
+  private case object NotNullable extends FieldInfo
+  private case class Nullable(by: Symbol) extends FieldInfo
 
   /** Whether or not a field is nullable */
-  private[this] var nullability: IdentityHashMap[Symbol, FieldInfo] = _
+  private var nullability: IdentityHashMap[Symbol, FieldInfo] = _
 
   override def prepareForUnit(tree: Tree)(implicit ctx: Context): Context = {
     if (nullability == null) nullability = new IdentityHashMap
@@ -64,8 +64,10 @@ class CollectNullableFields extends MiniPhase {
       sym.isField &&
       !sym.is(Lazy) &&
       !sym.owner.is(Trait) &&
-      sym.initial.is(PrivateLocal) &&
-      sym.info.widenDealias.typeSymbol.isNullableClass
+      sym.initial.isAllOf(PrivateLocal) &&
+      // We need `isNullableClassAfterErasure` and not `isNullable` because
+      // we care about the values as present in the JVM.
+      sym.info.widenDealias.typeSymbol.isNullableClassAfterErasure
 
     if (isNullablePrivateField)
       nullability.get(sym) match {

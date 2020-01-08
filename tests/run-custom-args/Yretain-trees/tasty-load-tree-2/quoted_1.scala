@@ -1,25 +1,20 @@
 import scala.quoted._
 
-import scala.tasty._
-
 object Foo {
 
   inline def inspectBody(i: => Int): String =
-    ~inspectBodyImpl('(i))
+    ${ inspectBodyImpl('i) }
 
-  def inspectBodyImpl(x: Expr[Int])(implicit reflect: Reflection): Expr[String] = {
-    import reflect._
+  def inspectBodyImpl(x: Expr[Int])(given qctx: QuoteContext): Expr[String] = {
+    import qctx.tasty.{_, given}
 
-    def definitionString(tree: Tree): Expr[String] = tree.symbol match {
-      case IsClassSymbol(sym) => sym.tree.show.toExpr
-      case IsDefSymbol(sym) => sym.tree.show.toExpr
-      case IsValSymbol(sym) => sym.tree.show.toExpr
-      case _ => '("NO DEFINTION")
-    }
+    def definitionString(sym: Symbol): Expr[String] =
+      if sym.isClassDef || sym.isDefDef || sym.isValDef then Expr(sym.tree.showExtractors)
+      else '{"NO DEFINTION"}
 
     x.unseal match {
-      case Term.Inlined(None, Nil, arg) => definitionString(arg)
-      case arg => definitionString(arg) // TODO should all by name parameters be in an inline node
+      case Inlined(None, Nil, arg) => definitionString(arg.symbol)
+      case arg => definitionString(arg.symbol) // TODO should all by name parameters be in an inline node
     }
   }
 }

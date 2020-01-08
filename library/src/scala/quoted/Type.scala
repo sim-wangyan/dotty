@@ -1,46 +1,69 @@
 package scala.quoted
 
-import scala.quoted.Types.TaggedType
-import scala.reflect.ClassTag
-import scala.runtime.quoted.Unpickler.Pickled
+import scala.quoted.show.SyntaxHighlight
 
-sealed abstract class Type[T] {
-  type unary_~ = T
+/** Quoted type (or kind) `T`
+ *
+ *  Restriction: only the QuoteContext.tasty.internal implementation is allowed to extend this trait.
+ *  Any other implementation will result in an undefined behavior.
+ */
+trait Type[T <: AnyKind] {
+  type `$splice` = T
+
+  /** Show a source code like representation of this type without syntax highlight */
+  def show(given qctx: QuoteContext): String = qctx.show(this, SyntaxHighlight.plain)
+
+  /** Show a source code like representation of this type */
+  def show(syntaxHighlight: SyntaxHighlight)(given qctx: QuoteContext): String = qctx.show(this, syntaxHighlight)
+
 }
 
 /** Some basic type tags, currently incomplete */
 object Type {
-  /** A term quote is desugared by the compiler into a call to this method */
-  def apply[T]: Type[T] =
-    throw new Error("Internal error: this method call should have been replaced by the compiler")
 
-  implicit def UnitTag: Type[Unit] = new TaggedType[Unit]
-  implicit def BooleanTag: Type[Boolean] = new TaggedType[Boolean]
-  implicit def ByteTag: Type[Byte] = new TaggedType[Byte]
-  implicit def CharTag: Type[Char] = new TaggedType[Char]
-  implicit def ShortTag: Type[Short] = new TaggedType[Short]
-  implicit def IntTag: Type[Int] = new TaggedType[Int]
-  implicit def LongTag: Type[Long] = new TaggedType[Long]
-  implicit def FloatTag: Type[Float] = new TaggedType[Float]
-  implicit def DoubleTag: Type[Double] = new TaggedType[Double]
-}
-
-/** All implementations of Type[T].
- *  These should never be used directly.
- */
-object Types {
-  /** A Type backed by a pickled TASTY tree */
-  final class TastyType[T](val tasty: Pickled, val args: Seq[Any]) extends Type[T] {
-    override def toString(): String = s"Type(<pickled tasty>)"
+  given UnitTag(given qctx: QuoteContext): Type[Unit] = {
+    import qctx.tasty.{_, given}
+    defn.UnitType.seal.asInstanceOf[quoted.Type[Unit]]
   }
 
-  /** An Type backed by a value */
-  final class TaggedType[T](implicit val ct: ClassTag[T]) extends Type[T] {
-    override def toString: String = s"Type($ct)"
+  given BooleanTag(given qctx: QuoteContext): Type[Boolean] = {
+    import qctx.tasty.{_, given}
+    defn.BooleanType.seal.asInstanceOf[quoted.Type[Boolean]]
   }
 
-  /** An Type backed by a tree */
-  final class TreeType[Tree](val typeTree: Tree) extends quoted.Type[Any] {
-    override def toString: String = s"Type(<tasty tree>)"
+  given ByteTag(given qctx: QuoteContext): Type[Byte] = {
+    import qctx.tasty.{_, given}
+    defn.ByteType.seal.asInstanceOf[quoted.Type[Byte]]
   }
+
+  given CharTag(given qctx: QuoteContext): Type[Char] = {
+    import qctx.tasty.{_, given}
+    defn.CharType.seal.asInstanceOf[quoted.Type[Char]]
+  }
+
+  given ShortTag(given qctx: QuoteContext): Type[Short] = {
+    import qctx.tasty.{_, given}
+    defn.ShortType.seal.asInstanceOf[quoted.Type[Short]]
+  }
+
+  given IntTag(given qctx: QuoteContext): Type[Int] = {
+    import qctx.tasty.{_, given}
+    defn.IntType.seal.asInstanceOf[quoted.Type[Int]]
+  }
+
+  given LongTag(given qctx: QuoteContext): Type[Long] = {
+    import qctx.tasty.{_, given}
+    defn.LongType.seal.asInstanceOf[quoted.Type[Long]]
+  }
+
+  given FloatTag(given qctx: QuoteContext): Type[Float] = {
+    import qctx.tasty.{_, given}
+    defn.FloatType.seal.asInstanceOf[quoted.Type[Float]]
+  }
+
+  given DoubleTag(given qctx: QuoteContext): Type[Double] = {
+    import qctx.tasty.{_, given}
+    defn.DoubleType.seal.asInstanceOf[quoted.Type[Double]]
+  }
+
 }

@@ -64,14 +64,7 @@ trait DottyTest extends ContextEscapeDetection {
   def checkCompile(checkAfterPhase: String, source: String)(assertion: (tpd.Tree, Context) => Unit): Context = {
     val c = compilerWithChecker(checkAfterPhase)(assertion)
     val run = c.newRun
-    run.compile(source)
-    run.runContext
-  }
-
-  def checkCompile(checkAfterPhase: String, sources: List[String])(assertion: (tpd.Tree, Context) => Unit): Context = {
-    val c = compilerWithChecker(checkAfterPhase)(assertion)
-    val run = c.newRun
-    run.compile(sources)
+    run.compileFromStrings(source)
     run.runContext
   }
 
@@ -84,23 +77,24 @@ trait DottyTest extends ContextEscapeDetection {
     val dummyName = "x_x_x"
     val vals = typeStringss.flatten.zipWithIndex.map{case (s, x)=> s"val ${dummyName}$x: $s = ???"}.mkString("\n")
     val gatheredSource = s" ${source}\n object A$dummyName {$vals}"
-    checkCompile("frontend", gatheredSource) {
+    checkCompile("typer", gatheredSource) {
       (tree, context) =>
         implicit val ctx = context
         val findValDef: (List[tpd.ValDef], tpd.Tree) => List[tpd.ValDef] =
-          (acc , tree) =>  { tree match {
-          case t: tpd.ValDef if t.name.startsWith(dummyName) => t :: acc
-          case _ => acc
-        }
-      }
-      val d = new tpd.DeepFolder[List[tpd.ValDef]](findValDef).foldOver(Nil, tree)
-      val tpes = d.map(_.tpe.widen).reverse
-      val tpess = typeStringss.foldLeft[(List[Type], List[List[Type]])]((tpes, Nil)) {
-        case ((rest, result), typeStrings) =>
-          val (prefix, suffix) = rest.splitAt(typeStrings.length)
-          (suffix, prefix :: result)
-      }._2.reverse
-      assertion(tpess, context)
+          (acc , tree) =>  {
+            tree match {
+              case t: tpd.ValDef if t.name.startsWith(dummyName) => t :: acc
+              case _ => acc
+            }
+          }
+        val d = new tpd.DeepFolder[List[tpd.ValDef]](findValDef).foldOver(Nil, tree)
+        val tpes = d.map(_.tpe.widen).reverse
+        val tpess = typeStringss.foldLeft[(List[Type], List[List[Type]])]((tpes, Nil)) {
+          case ((rest, result), typeStrings) =>
+            val (prefix, suffix) = rest.splitAt(typeStrings.length)
+            (suffix, prefix :: result)
+        }._2.reverse
+        assertion(tpess, context)
     }
   }
 

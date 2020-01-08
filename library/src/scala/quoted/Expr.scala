@@ -1,153 +1,246 @@
 package scala.quoted
 
-import scala.runtime.quoted.Unpickler.Pickled
+import scala.quoted.show.SyntaxHighlight
 
-sealed abstract class Expr[+T] {
-  final def unary_~ : T = throw new Error("~ should have been compiled away")
+/** Quoted expression of type `T`
+ *
+ *  Restriction: only the QuoteContext.tasty.internal implementation is allowed to extend this trait.
+ *  Any other implementation will result in an undefined behavior.
+ */
+trait Expr[+T] {
 
-  /** Evaluate the contents of this expression and return the result.
-   *
-   *  May throw a FreeVariableError on expressions that came from a macro.
-   */
-  final def run(implicit toolbox: Toolbox): T = toolbox.run(this)
+  /** Show a source code like representation of this expression without syntax highlight */
+  def show(implicit qctx: QuoteContext): String = qctx.show(this, SyntaxHighlight.plain)
 
   /** Show a source code like representation of this expression */
-  final def show(implicit toolbox: Toolbox): String = toolbox.show(this)
+  def show(syntaxHighlight: SyntaxHighlight)(implicit qctx: QuoteContext): String = qctx.show(this, syntaxHighlight)
+
+  /** Return the value of this expression.
+   *
+   *  Returns `None` if the expression does not contain a value or contains side effects.
+   *  Otherwise returns the `Some` of the value.
+   */
+  final def getValue[U >: T](given qctx: QuoteContext, valueOf: ValueOfExpr[U]): Option[U] = valueOf(this)
+
+  /** Pattern matches `this` against `that`. Effectively performing a deep equality check.
+   *  It does the equivalent of
+   *  ```
+   *  this match
+   *    case '{...} => true // where the contens of the pattern are the contents of `that`
+   *    case _ => false
+   *  ```
+   */
+  final def matches(that: Expr[Any])(given qctx: QuoteContext): Boolean =
+    !scala.internal.quoted.Expr.unapply[Unit, Unit](this)(given that, false, qctx).isEmpty
+
+  /** Returns the undelying argument that was in the call before inlining.
+   *
+   *  ```
+   *  inline foo(x: Int): Int = baz(x, x)
+   *  foo(bar())
+   *  ```
+   *  is inlined as
+   *  ```
+   *  val x = bar()
+   *  baz(x, x)
+   *  ```
+   *  in this case the undelying argument of `x` will be `bar()`.
+   *
+   *  Warning: Using the undelying argument directly in the expansion of a macro may change the parameter
+   *           semantics from by-value to by-name.
+   */
+  def underlyingArgument(given qctx: QuoteContext): Expr[T] = {
+    import qctx.tasty.{given, _}
+    this.unseal.underlyingArgument.seal.asInstanceOf[Expr[T]]
+  }
 }
 
 object Expr {
-  /** A term quote is desugared by the compiler into a call to this method */
-  def apply[T](x: T): Expr[T] =
-    throw new Error("Internal error: this method call should have been replaced by the compiler")
 
-  // TODO simplify using new extension methods
+  import scala.internal.quoted._
 
-  implicit class AsFunction0[R](private val f: Expr[() => R]) extends AnyVal {
-    def apply(): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array.empty)
-  }
+  /** Converts a tuple `(T1, ..., Tn)` to `(Expr[T1], ..., Expr[Tn])` */
+  type TupleOfExpr[Tup <: Tuple] = Tuple.Map[Tup, [X] =>> (given QuoteContext) => Expr[X]]
 
-  implicit class AsFunction1[T1, R](private val f: Expr[(T1) => R]) extends AnyVal {
-    def apply(x1: Expr[T1]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1))
-  }
-
-  implicit class AsFunction2[T1, T2, R](private val f: Expr[(T1, T2) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2))
-  }
-
-  implicit class AsFunction3[T1, T2, T3, R](private val f: Expr[(T1, T2, T3) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3))
-  }
-
-  implicit class AsFunction4[T1, T2, T3, T4, R](private val f: Expr[(T1, T2, T3, T4) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4))
-  }
-
-  implicit class AsFunction5[T1, T2, T3, T4, T5, R](private val f: Expr[(T1, T2, T3, T4, T5) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5))
-  }
-
-  implicit class AsFunction6[T1, T2, T3, T4, T5, T6, R](private val f: Expr[(T1, T2, T3, T4, T5, T6) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6))
-  }
-
-  implicit class AsFunction7[T1, T2, T3, T4, T5, T6, T7, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7))
-  }
-
-  implicit class AsFunction8[T1, T2, T3, T4, T5, T6, T7, T8, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8))
-  }
-
-  implicit class AsFunction9[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9))
-  }
-
-  implicit class AsFunction10[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10))
-  }
-
-  implicit class AsFunction11[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11))
-  }
-
-  implicit class AsFunction12[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12))
-  }
-
-  implicit class AsFunction13[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13))
-  }
-
-  implicit class AsFunction14[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14))
-  }
-
-  implicit class AsFunction15[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15))
-  }
-
-  implicit class AsFunction16[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16))
-  }
-
-  implicit class AsFunction17[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16], x17: Expr[T17]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17))
-  }
-
-  implicit class AsFunction18[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16], x17: Expr[T17], x18: Expr[T18]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18))
-  }
-
-  implicit class AsFunction19[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16], x17: Expr[T17], x18: Expr[T18], x19: Expr[T19]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19))
-  }
-
-  implicit class AsFunction20[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16], x17: Expr[T17], x18: Expr[T18], x19: Expr[T19], x20: Expr[T20]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20))
-  }
-
-  implicit class AsFunction21[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16], x17: Expr[T17], x18: Expr[T18], x19: Expr[T19], x20: Expr[T20], x21: Expr[T21]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21))
-  }
-
-  implicit class AsFunction22[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22, R](private val f: Expr[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20, T21, T22) => R]) extends AnyVal {
-    def apply(x1: Expr[T1], x2: Expr[T2], x3: Expr[T3], x4: Expr[T4], x5: Expr[T5], x6: Expr[T6], x7: Expr[T7], x8: Expr[T8], x9: Expr[T9], x10: Expr[T10], x11: Expr[T11], x12: Expr[T12], x13: Expr[T13], x14: Expr[T14], x15: Expr[T15], x16: Expr[T16], x17: Expr[T17], x18: Expr[T18], x19: Expr[T19], x20: Expr[T20], x21: Expr[T21], x22: Expr[T22]): Expr[R] = new Exprs.FunctionAppliedTo[R](f, Array(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17, x18, x19, x20, x21, x22))
-  }
-
-}
-
-/** All implementations of Expr[T].
- *  These should never be used directly.
- */
-object Exprs {
-  /** An Expr backed by a pickled TASTY tree */
-  final class TastyExpr[+T](val tasty: Pickled, val args: Seq[Any]) extends Expr[T] {
-    override def toString: String = s"Expr(<pickled tasty>)"
-  }
-
-  /** An Expr backed by a lifted value.
-   *  Values can only be of type Boolean, Byte, Short, Char, Int, Long, Float, Double, Unit, String or Null.
-   */
-  final class LiftedExpr[+T](val value: T) extends Expr[T] {
-    override def toString: String = s"Expr($value)"
-  }
-
-  /** An Expr backed by a tree. Only the current compiler trees are allowed.
+  /** `Expr.betaReduce(f)(x1, ..., xn)` is functionally the same as `'{($f)($x1, ..., $xn)}`, however it optimizes this call
+   *   by returning the result of beta-reducing `f(x1, ..., xn)` if `f` is a known lambda expression.
    *
-   *  These expressions are used for arguments of macros. They contain and actual tree
-   *  from the program that is being expanded by the macro.
-   *
-   *  May contain references to code defined outside this TastyTreeExpr instance.
+   *  `Expr.betaReduce` distributes applications of `Expr` over function arrows
+   *   ```scala
+   *   Expr.betaReduce(_): Expr[(T1, ..., Tn) => R] => ((Expr[T1], ..., Expr[Tn]) => Expr[R])
+   *   ```
    */
-  final class TastyTreeExpr[Tree](val tree: Tree) extends quoted.Expr[Any] {
-    override def toString: String = s"Expr(<tasty tree>)"
+  def betaReduce[F, Args <: Tuple, R, G](f: Expr[F])(given tf: TupledFunction[F, Args => R], tg: TupledFunction[G, TupleOfExpr[Args] => Expr[R]], qctx: QuoteContext): G = {
+    import qctx.tasty.{_, given}
+    tg.untupled(args => qctx.tasty.internal.betaReduce(f.unseal, args.toArray.toList.map(_.asInstanceOf[QuoteContext => Expr[_]](qctx).unseal)).seal.asInstanceOf[Expr[R]])
   }
 
-  // TODO Use a List in FunctionAppliedTo(val f: Expr[_], val args: List[Expr[_]])
-  // FIXME: Having the List in the code above trigers an assertion error while testing dotty.tools.dotc.reporting.ErrorMessagesTests.i3187
-  //        This test does redefine `scala.collection`. Further investigation is needed.
-  /** An Expr representing `'{(~f).apply(~x1, ..., ~xn)}` but it is beta-reduced when the closure is known */
-  final class FunctionAppliedTo[+R](val f: Expr[_], val args: Array[Expr[_]]) extends Expr[R] {
-    override def toString: String = s"Expr($f <applied to> ${args.toList})"
+  /** `Expr.betaReduceGiven(f)(x1, ..., xn)` is functionally the same as `'{($f)(given $x1, ..., $xn)}`, however it optimizes this call
+   *   by returning the result of beta-reducing `f(given x1, ..., xn)` if `f` is a known lambda expression.
+   *
+   *  `Expr.betaReduceGiven` distributes applications of `Expr` over function arrows
+   *   ```scala
+   *   Expr.betaReduceGiven(_): Expr[(given T1, ..., Tn) => R] => ((Expr[T1], ..., Expr[Tn]) => Expr[R])
+   *   ```
+   */
+  def betaReduceGiven[F, Args <: Tuple, R, G](f: Expr[F])(given tf: TupledFunction[F, (given Args) => R], tg: TupledFunction[G, TupleOfExpr[Args] => Expr[R]], qctx: QuoteContext): G = {
+    import qctx.tasty.{_, given}
+    tg.untupled(args => qctx.tasty.internal.betaReduce(f.unseal, args.toArray.toList.map(_.asInstanceOf[QuoteContext => Expr[_]](qctx).unseal)).seal.asInstanceOf[Expr[R]])
   }
+
+  /** Returns a null expresssion equivalent to `'{null}` */
+  def nullExpr: (given QuoteContext) => Expr[Null] = (given qctx) => {
+    import qctx.tasty.{_, given}
+    Literal(Constant(null)).seal.asInstanceOf[Expr[Null]]
+  }
+
+  /** Returns a unit expresssion equivalent to `'{}` or `'{()}` */
+  def unitExpr: (given QuoteContext) => Expr[Unit] = (given qctx) => {
+    import qctx.tasty.{_, given}
+    Literal(Constant(())).seal.asInstanceOf[Expr[Unit]]
+  }
+
+  /** Returns an expression containing a block with the given statements and ending with the expresion
+   *  Given list of statements `s1 :: s2 :: ... :: Nil` and an expression `e` the resulting expression
+   *  will be equivalent to `'{ $s1; $s2; ...; $e }`.
+   */
+  def block[T](statements: List[Expr[_]], expr: Expr[T])(given qctx: QuoteContext): Expr[T] = {
+    import qctx.tasty.{_, given}
+    Block(statements.map(_.unseal), expr.unseal).seal.asInstanceOf[Expr[T]]
+  }
+
+  /** Lift a value into an expression containing the construction of that value */
+  def apply[T: Liftable](x: T)(given QuoteContext): Expr[T] = summon[Liftable[T]].toExpr(x)
+
+  /** Lifts this sequence of expressions into an expression of a sequence
+   *
+   *  Transforms a sequence of expression
+   *    `Seq(e1, e2, ...)` where `ei: Expr[T]`
+   *  to an expression equivalent to
+   *    `'{ Seq($e1, $e2, ...) }` typed as an `Expr[Seq[T]]`
+   *
+   *  Usage:
+   *  ```scala
+   *  '{ List(${Expr.ofSeq(List(1, 2, 3))}: _*) } // equvalent to '{ List(1, 2, 3) }
+   *  ```
+   */
+  def ofSeq[T](xs: Seq[Expr[T]])(given tp: Type[T], qctx: QuoteContext): Expr[Seq[T]] = {
+    import qctx.tasty.{_, given}
+    Repeated(xs.map(_.unseal).toList, tp.unseal).seal.asInstanceOf[Expr[Seq[T]]]
+  }
+
+
+  /** Lifts this list of expressions into an expression of a list
+   *
+   *  Transforms a list of expression
+   *    `List(e1, e2, ...)` where `ei: Expr[T]`
+   *  to an expression equivalent to
+   *    `'{ List($e1, $e2, ...) }` typed as an `Expr[List[T]]`
+   */
+  def  ofList[T](xs: Seq[Expr[T]])(given Type[T], QuoteContext): Expr[List[T]] =
+    if (xs.isEmpty) '{ Nil } else '{ List(${ofSeq(xs)}: _*) }
+
+  /** Lifts this sequence of expressions into an expression of a tuple
+   *
+   *  Transforms a sequence of expression
+   *    `Seq(e1, e2, ...)` where `ei: Expr[_]`
+   *  to an expression equivalent to
+   *    `'{ ($e1, $e2, ...) }` typed as an `Expr[Tuple]`
+   */
+  def ofTuple(seq: Seq[Expr[_]])(given QuoteContext): Expr[Tuple] = {
+    seq match {
+      case Seq() =>
+        unitExpr
+      case Seq('{ $x1: $t1 }) =>
+        '{ Tuple1($x1) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }) =>
+        '{ Tuple2($x1, $x2) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }) =>
+        '{ Tuple3($x1, $x2, $x3) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }) =>
+        '{ Tuple4($x1, $x2, $x3, $x4) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }) =>
+        '{ Tuple5($x1, $x2, $x3, $x4, $x5) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }) =>
+        '{ Tuple6($x1, $x2, $x3, $x4, $x5, $x6) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }) =>
+        '{ Tuple7($x1, $x2, $x3, $x4, $x5, $x6, $x7) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }) =>
+        '{ Tuple8($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }) =>
+        '{ Tuple9($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }) =>
+        '{ Tuple10($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }) =>
+        '{ Tuple11($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }) =>
+        '{ Tuple12($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }) =>
+        '{ Tuple13($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }) =>
+        '{ Tuple14($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }) =>
+        '{ Tuple15($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }) =>
+        '{ Tuple16($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }, '{ $x17: $t17 }) =>
+        '{ Tuple17($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16, $x17) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }, '{ $x17: $t17 }, '{ $x18: $t18 }) =>
+        '{ Tuple18($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16, $x17, $x18) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }, '{ $x17: $t17 }, '{ $x18: $t18 }, '{ $x19: $t19 }) =>
+        '{ Tuple19($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16, $x17, $x18, $x19) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }, '{ $x17: $t17 }, '{ $x18: $t18 }, '{ $x19: $t19 }, '{ $x20: $t20 }) =>
+        '{ Tuple20($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16, $x17, $x18, $x19, $x20) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }, '{ $x17: $t17 }, '{ $x18: $t18 }, '{ $x19: $t19 }, '{ $x20: $t20 }, '{ $x21: $t21 }) =>
+        '{ Tuple21($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16, $x17, $x18, $x19, $x20, $x21) }
+      case Seq('{ $x1: $t1 }, '{ $x2: $t2 }, '{ $x3: $t3 }, '{ $x4: $t4 }, '{ $x5: $t5 }, '{ $x6: $t6 }, '{ $x7: $t7 }, '{ $x8: $t8 }, '{ $x9: $t9 }, '{ $x10: $t10 }, '{ $x11: $t11 }, '{ $x12: $t12 }, '{ $x13: $t13 }, '{ $x14: $t14 }, '{ $x15: $t15 }, '{ $x16: $t16 }, '{ $x17: $t17 }, '{ $x18: $t18 }, '{ $x19: $t19 }, '{ $x20: $t20 }, '{ $x21: $t21 }, '{ $x22: $t22 }) =>
+        '{ Tuple22($x1, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9, $x10, $x11, $x12, $x13, $x14, $x15, $x16, $x17, $x18, $x19, $x20, $x21, $x22) }
+      case _ =>
+        '{ Tuple.fromIArray(IArray(${ofSeq(seq)}: _*)) }
+    }
+  }
+
+  /** Given a tuple of the form `(Expr[A1], ..., Expr[An])`, outputs a tuple `Expr[(A1, ..., An)]`. */
+  def ofTuple[T <: Tuple: Tuple.IsMappedBy[Expr]: Type](tup: T) (given qctx: QuoteContext): Expr[Tuple.InverseMap[T, Expr]] = {
+    import qctx.tasty.{_, given}
+    val elems: Seq[Expr[_]] = tup.asInstanceOf[Product].productIterator.toSeq.asInstanceOf[Seq[Expr[_]]]
+    ofTuple(elems).cast[Tuple.InverseMap[T, Expr]]
+  }
+
+  // TODO generalize for any function arity (see Expr.betaReduce)
+  def open[T1, R, X](f: Expr[T1 => R])(content: (Expr[R], [t] => Expr[t] => Expr[T1] => Expr[t]) => X)(given qctx: QuoteContext): X = {
+    import qctx.tasty.{given, _}
+    val (params, bodyExpr) = paramsAndBody(f)
+    content(bodyExpr, [t] => (e: Expr[t]) => (v: Expr[T1]) => bodyFn[t](e.unseal, params, List(v.unseal)).seal.asInstanceOf[Expr[t]])
+  }
+
+  def open[T1, T2, R, X](f: Expr[(T1, T2) => R])(content: (Expr[R], [t] => Expr[t] => (Expr[T1], Expr[T2]) => Expr[t]) => X)(given qctx: QuoteContext)(given DummyImplicit): X = {
+    import qctx.tasty.{given, _}
+    val (params, bodyExpr) = paramsAndBody(f)
+    content(bodyExpr, [t] => (e: Expr[t]) => (v1: Expr[T1], v2: Expr[T2]) => bodyFn[t](e.unseal, params, List(v1.unseal, v2.unseal)).seal.asInstanceOf[Expr[t]])
+  }
+
+  def open[T1, T2, T3, R, X](f: Expr[(T1, T2, T3) => R])(content: (Expr[R], [t] => Expr[t] => (Expr[T1], Expr[T2], Expr[T3]) => Expr[t]) => X)(given qctx: QuoteContext)(given DummyImplicit, DummyImplicit): X = {
+    import qctx.tasty.{given, _}
+    val (params, bodyExpr) = paramsAndBody(f)
+    content(bodyExpr, [t] => (e: Expr[t]) => (v1: Expr[T1], v2: Expr[T2], v3: Expr[T3]) => bodyFn[t](e.unseal, params, List(v1.unseal, v2.unseal, v3.unseal)).seal.asInstanceOf[Expr[t]])
+  }
+
+  private def paramsAndBody[R](given qctx: QuoteContext)(f: Expr[Any]) = {
+    import qctx.tasty.{given, _}
+    val Block(List(DefDef("$anonfun", Nil, List(params), _, Some(body))), Closure(Ident("$anonfun"), None)) = f.unseal.etaExpand
+    (params, body.seal.asInstanceOf[Expr[R]])
+  }
+
+  private def bodyFn[t](given qctx: QuoteContext)(e: qctx.tasty.Term, params: List[qctx.tasty.ValDef], args: List[qctx.tasty.Term]): qctx.tasty.Term = {
+    import qctx.tasty.{given, _}
+    val map = params.map(_.symbol).zip(args).toMap
+    new TreeMap {
+      override def transformTerm(tree: Term)(given ctx: Context): Term =
+        super.transformTerm(tree) match
+          case tree: Ident => map.getOrElse(tree.symbol, tree)
+          case tree => tree
+    }.transformTerm(e)
+  }
+
 }

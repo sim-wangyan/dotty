@@ -1,10 +1,12 @@
 package dotty
 
+import java.nio.file._
+
 /** Runtime properties from defines or environmnent */
 object Properties {
 
   /** If property is unset or "TRUE" we consider it `true` */
-  private[this] def propIsNullOrTrue(prop: String): Boolean = {
+  private def propIsNullOrTrue(prop: String): Boolean = {
     val prop = System.getProperty("dotty.tests.interactive")
     prop == null || prop == "TRUE"
   }
@@ -20,6 +22,10 @@ object Properties {
    */
   val testsFilter: Option[String] = sys.props.get("dotty.tests.filter")
 
+  /** Tests should override the checkfiles with the current output */
+  val testsUpdateCheckfile: Boolean =
+    sys.props.getOrElse("dotty.tests.updateCheckfiles", "FALSE") == "TRUE"
+
   /** When set, the run tests are only compiled - not run, a warning will be
    *  issued
    */
@@ -32,6 +38,9 @@ object Properties {
    */
   val testsSafeMode: Boolean = sys.props.isDefinedAt("dotty.tests.safemode")
 
+  /** Extra directory containing sources for the compiler */
+  def dottyCompilerManagedSources: Path = Paths.get(sys.props("dotty.tests.dottyCompilerManagedSources"))
+
   /** dotty-interfaces jar */
   def dottyInterfaces: String = sys.props("dotty.tests.classes.dottyInterfaces")
 
@@ -41,6 +50,12 @@ object Properties {
   /** dotty-compiler jar */
   def dottyCompiler: String = sys.props("dotty.tests.classes.dottyCompiler")
 
+  /** dotty-staging jar */
+  def dottyStaging: String = sys.props("dotty.tests.classes.dottyStaging")
+
+  /** tasty-core jar */
+  def tastyCore: String = sys.props("dotty.tests.classes.tastyCore")
+
   /** compiler-interface jar */
   def compilerInterface: String = sys.props("dotty.tests.classes.compilerInterface")
 
@@ -49,9 +64,6 @@ object Properties {
 
   /** scala-asm jar */
   def scalaAsm: String = sys.props("dotty.tests.classes.scalaAsm")
-
-  /** scala-xml jar */
-  def scalaXml: String = sys.props("dotty.tests.classes.scalaXml")
 
   /** jline-terminal jar */
   def jlineTerminal: String = sys.props("dotty.tests.classes.jlineTerminal")

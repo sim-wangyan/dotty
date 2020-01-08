@@ -1,13 +1,14 @@
 import scala.quoted._
 
-class Test {
+def test(given QuoteContext) = {
 
-  val a = '(1)
+  val a = '{1}
   '{
+    given QuoteContext = ???
     a // error
-    ~a
-    '(~a) // error
-    '( '(~a) ) // error
+    $a
+    '{$a} // error
+    '{ given QuoteContext = ???; '{$a} } // error
   }
 
 }

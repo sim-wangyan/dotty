@@ -22,38 +22,36 @@ extends interfaces.SourcePosition with Showable {
 
   def point: Int = span.point
 
-  /** The line of the position, starting at 0 */
-  def line: Int = source.offsetToLine(point)
+  def line: Int = if (source.exists) source.offsetToLine(point) else -1
 
   /** Extracts the lines from the underlying source file as `Array[Char]`*/
   def linesSlice: Array[Char] =
     source.content.slice(source.startOfLine(start), source.nextLine(end))
 
   /** The lines of the position */
-  def lines: List[Int] = {
+  def lines: Range = {
     val startOffset = source.offsetToLine(start)
-    val endOffset = source.offsetToLine(end + 1)
-    if (startOffset >= endOffset) line :: Nil
-    else (startOffset until endOffset).toList
+    val endOffset = source.offsetToLine(end - 1) // -1 to drop a line if no chars in it form part of the position
+    if (startOffset >= endOffset) line to line
+    else startOffset to endOffset
   }
 
   def lineOffsets: List[Int] =
-    lines.map(source.lineToOffset(_))
+    lines.toList.map(source.lineToOffset(_))
 
   def beforeAndAfterPoint: (List[Int], List[Int]) =
     lineOffsets.partition(_ <= point)
 
-  /** The column of the position, starting at 0 */
-  def column: Int = source.column(point)
+  def column: Int = if (source.exists) source.column(point) else -1
 
   def start: Int = span.start
-  def startLine: Int = source.offsetToLine(start)
-  def startColumn: Int = source.column(start)
+  def startLine: Int = if (source.exists) source.offsetToLine(start) else -1
+  def startColumn: Int = if (source.exists) source.column(start) else -1
   def startColumnPadding: String = source.startColumnPadding(start)
 
   def end: Int = span.end
-  def endLine: Int = source.offsetToLine(end)
-  def endColumn: Int = source.column(end)
+  def endLine: Int = if (source.exists) source.offsetToLine(end) else -1
+  def endColumn: Int = if (source.exists) source.column(end) else -1
 
   def withOuter(outer: SourcePosition): SourcePosition = SourcePosition(source, span, outer)
   def withSpan(range: Span) = SourcePosition(source, range, outer)
@@ -63,6 +61,20 @@ extends interfaces.SourcePosition with Showable {
   def focus   : SourcePosition = withSpan(span.focus)
   def toSynthetic: SourcePosition = withSpan(span.toSynthetic)
 
+  def outermost: SourcePosition =
+    if outer == null || outer == NoSourcePosition then this else outer.outermost
+
+  /** Inner most position that is contained within the `outermost` position.
+   *  Most precise position that that comes from the call site.
+   */
+  def nonInlined: SourcePosition = {
+    val om = outermost
+    def rec(self: SourcePosition): SourcePosition =
+      if om.contains(self) then self else rec(self.outer)
+    rec(this)
+  }
+
+
   override def toString: String =
     s"${if (source.exists) source.file.toString else "(no source)"}:$span"
 
@@ -70,8 +82,7 @@ extends interfaces.SourcePosition with Showable {
 }
 
 /** A sentinel for a non-existing source position */
-@sharable object NoSourcePosition extends SourcePosition(NoSource, NoSpan) {
+@sharable object NoSourcePosition extends SourcePosition(NoSource, NoSpan, null) {
   override def toString: String = "?"
   override def withOuter(outer: SourcePosition): SourcePosition = outer
 }
-

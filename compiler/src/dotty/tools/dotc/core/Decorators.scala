@@ -1,4 +1,5 @@
-package dotty.tools.dotc
+package dotty.tools
+package dotc
 package core
 
 import annotation.tailrec
@@ -54,10 +55,10 @@ object Decorators {
     final def mapconserve[U](f: T => U): List[U] = {
       @tailrec
       def loop(mapped: ListBuffer[U], unchanged: List[U], pending: List[T]): List[U] =
-        if (pending.isEmpty) {
+        if (pending.isEmpty)
           if (mapped eq null) unchanged
           else mapped.prependToList(unchanged)
-        } else {
+        else {
           val head0 = pending.head
           val head1 = f(head0)
 
@@ -92,12 +93,13 @@ object Decorators {
               if (ys1 eq xs1) xs else x :: ys1
             else
               ys1
-          } else xs filter p
+          }
+          else xs filter p
       }
       loop(xs, 0)
     }
 
-    /** Like `(xs, ys).zipped.map(f)`, but returns list `xs` itself
+    /** Like `xs.lazyZip(ys).map(f)`, but returns list `xs` itself
      *  - instead of a copy - if function `f` maps all elements of
      *  `xs` to themselves. Also, it is required that `ys` is at least
      *  as long as `xs`.
@@ -111,6 +113,22 @@ object Decorators {
             (xs1 eq xs.tail)) xs
         else x1 :: xs1
       }
+
+    /** Like `xs.lazyZip(xs.indices).map(f)`, but returns list `xs` itself
+     *  - instead of a copy - if function `f` maps all elements of
+     *  `xs` to themselves.
+     */
+    def mapWithIndexConserve[U <: T](f: (T, Int) => U): List[U] =
+      def recur(xs: List[T], idx: Int): List[U] =
+        if xs.isEmpty then Nil
+        else
+          val x1 = f(xs.head, idx)
+          val xs1 = recur(xs.tail, idx + 1)
+          if (x1.asInstanceOf[AnyRef] eq xs.head.asInstanceOf[AnyRef])
+             && (xs1 eq xs.tail)
+          then xs.asInstanceOf[List[U]]
+          else x1 :: xs1
+      recur(xs, 0)
 
     final def hasSameLengthAs[U](ys: List[U]): Boolean = {
       @tailrec def loop(xs: List[T], ys: List[U]): Boolean =
@@ -168,11 +186,16 @@ object Decorators {
       }
   }
 
-  implicit class genericDeco[T](val x: T) extends AnyVal {
-    def reporting(op: T => String, printer: config.Printers.Printer = config.Printers.default): T = {
-      printer.println(op(x))
+  implicit class reportDeco[T](x: T) extends AnyVal {
+    def reporting(
+        op: (given WrappedResult[T]) => String,
+        printer: config.Printers.Printer = config.Printers.default): T = {
+      printer.println(op(given WrappedResult(x)))
       x
     }
+  }
+
+  implicit class genericDeco[T](val x: T) extends AnyVal {
     def assertingErrorsReported(implicit ctx: Context): T = {
       assert(ctx.reporter.errorsReported)
       x
@@ -184,7 +207,6 @@ object Decorators {
   }
 
   implicit class StringInterpolators(val sc: StringContext) extends AnyVal {
-
     /** General purpose string formatting */
     def i(args: Any*)(implicit ctx: Context): String =
       new StringFormatter(sc).assemble(args)
@@ -199,11 +221,7 @@ object Decorators {
      *  give more info about type variables and to disambiguate where needed.
      */
     def ex(args: Any*)(implicit ctx: Context): String =
-      explained(implicit ctx => em(args: _*))
-
-    /** Formatter that adds syntax highlighting to all interpolated values */
-    def hl(args: Any*)(implicit ctx: Context): String =
-      new SyntaxFormatter(sc).assemble(args).stripMargin
+      explained(em(args: _*))
   }
 
   implicit class ArrayInterpolator[T <: AnyRef](val arr: Array[T]) extends AnyVal {

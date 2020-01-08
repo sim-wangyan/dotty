@@ -1,9 +1,0 @@
-
-scala.Predef.classOf[runtime.Null].getCanonicalName()
-scala.runtime.Null$
-
-scala.Predef.classOf[runtime.Nothing].getCanonicalName()
-scala.runtime.Nothing$
-
-scala.Predef.classOf[lang.String].getCanonicalName()
-java.lang.String

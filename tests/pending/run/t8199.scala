@@ -34,12 +34,12 @@ trait trt0123456789 { def x = Test.checkCallerImplClassName() }
 trait trt01234567890 { def x = Test.checkCallerImplClassName() }
 }
 
-object Test extends dotty.runtime.LegacyApp {
+object Test extends App {
   def check(c: Class[_]): Unit = {
     checkClassName(c.getName)
   }
   def checkClassName(name: String): Unit = {
-    val defaultMaxClassFileLength = 255
+    val defaultMaxClassFileLength = 240
     assert((name + ".class").length <= defaultMaxClassFileLength, name)
   }
   def checkCallerImplClassName(): Unit = {

@@ -8,6 +8,7 @@ import collection.mutable
 import printing.Printer
 import printing.Texts._
 import config.Config
+import config.Printers.constr
 import reflect.ClassTag
 import annotation.tailrec
 import annotation.internal.sharable
@@ -166,8 +167,6 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
     entries != null && isBounds(entries(pnum)) && (typeVar(entries, pnum) eq tvar)
   }
 
-  private def isBounds(tp: Type) = tp.isInstanceOf[TypeBounds]
-
 // ---------- Dependency handling ----------------------------------------------
 
   def lower(param: TypeParamRef): List[TypeParamRef] = lowerLens(this, param.binder, param.paramNum)
@@ -196,15 +195,6 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
 
   def nonParamBounds(param: TypeParamRef)(implicit ctx: Context): TypeBounds =
     entry(param).bounds
-
-  def fullLowerBound(param: TypeParamRef)(implicit ctx: Context): Type =
-    (nonParamBounds(param).lo /: minLower(param))(_ | _)
-
-  def fullUpperBound(param: TypeParamRef)(implicit ctx: Context): Type =
-    (nonParamBounds(param).hi /: minUpper(param))(_ & _)
-
-  def fullBounds(param: TypeParamRef)(implicit ctx: Context): TypeBounds =
-    nonParamBounds(param).derivedTypeBounds(fullLowerBound(param), fullUpperBound(param))
 
   def typeVarOfParam(param: TypeParamRef): Type = {
     val entries = boundsMap(param.binder)
@@ -311,8 +301,8 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
       val lo = normalizedType(bounds.lo, loBuf, isUpper = false)
       val hi = normalizedType(bounds.hi, hiBuf, isUpper = true)
       current = updateEntry(current, param, bounds.derivedTypeBounds(lo, hi))
-      current = (current /: loBuf)(order(_, _, param))
-      current = (current /: hiBuf)(order(_, param, _))
+      current = loBuf.foldLeft(current)(order(_, _, param))
+      current = hiBuf.foldLeft(current)(order(_, param, _))
       loBuf.clear()
       hiBuf.clear()
       i += 1
@@ -333,8 +323,8 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
       assert(contains(param2), i"$param2")
       val newUpper = param2 :: exclusiveUpper(param2, param1)
       val newLower = param1 :: exclusiveLower(param1, param2)
-      val current1 = (current /: newLower)(upperLens.map(this, _, _, newUpper ::: _))
-      val current2 = (current1 /: newUpper)(lowerLens.map(this, _, _, newLower ::: _))
+      val current1 = newLower.foldLeft(current)(upperLens.map(this, _, _, newUpper ::: _))
+      val current2 = newUpper.foldLeft(current1)(lowerLens.map(this, _, _, newLower ::: _))
       current2
     }
 
@@ -479,15 +469,13 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
       (poly, entries) <- boundsMap.toList
       n <- 0 until paramCount(entries)
       if entries(n).exists
-    } yield poly.paramRefs(n)
-
-  def forallParams(p: TypeParamRef => Boolean): Boolean = {
-    boundsMap.foreachBinding { (poly, entries) =>
-      for (i <- 0 until paramCount(entries))
-        if (isBounds(entries(i)) && !p(poly.paramRefs(i))) return false
     }
-    true
-  }
+    yield poly.paramRefs(n)
+
+  def forallParams(p: TypeParamRef => Boolean): Boolean =
+    boundsMap.forallBinding { (poly, entries) =>
+      !0.until(paramCount(entries)).exists(i => isBounds(entries(i)) && !p(poly.paramRefs(i)))
+    }
 
   def foreachParam(p: (TypeLambda, Int) => Unit): Unit =
     boundsMap.foreachBinding { (poly, entries) =>
@@ -496,15 +484,15 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
 
   def foreachTypeVar(op: TypeVar => Unit): Unit =
     boundsMap.foreachBinding { (poly, entries) =>
-      for (i <- 0 until paramCount(entries)) {
+      for (i <- 0 until paramCount(entries))
         typeVar(entries, i) match {
           case tv: TypeVar if !tv.inst.exists => op(tv)
           case _ =>
         }
-      }
     }
 
   def & (other: Constraint, otherHasErrors: Boolean)(implicit ctx: Context): OrderingConstraint = {
+
     def merge[T](m1: ArrayValuedMap[T], m2: ArrayValuedMap[T], join: (T, T) => T): ArrayValuedMap[T] = {
       var merged = m1
       def mergeArrays(xs1: Array[T], xs2: Array[T]) = {
@@ -520,7 +508,7 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
     }
 
     def mergeParams(ps1: List[TypeParamRef], ps2: List[TypeParamRef]) =
-      (ps1 /: ps2)((ps1, p2) => if (ps1.contains(p2)) ps1 else p2 :: ps1)
+      ps2.foldLeft(ps1)((ps1, p2) => if (ps1.contains(p2)) ps1 else p2 :: ps1)
 
     // Must be symmetric
     def mergeEntries(e1: Type, e2: Type): Type =
@@ -529,7 +517,7 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
         case (e1: TypeBounds, e2: TypeBounds) => e1 & e2
         case (e1: TypeBounds, _) if e1 contains e2 => e2
         case (_, e2: TypeBounds) if e2 contains e1 => e1
-        case (tv1: TypeVar, tv2: TypeVar) if tv1.instanceOpt eq tv2.instanceOpt => e1
+        case (tv1: TypeVar, tv2: TypeVar) if tv1 eq tv2 => e1
         case _ =>
           if (otherHasErrors)
             e1
@@ -537,12 +525,62 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
             throw new AssertionError(i"cannot merge $this with $other, mergeEntries($e1, $e2) failed")
       }
 
-    val that = other.asInstanceOf[OrderingConstraint]
+    /** Ensure that constraint `c` does not associate different TypeVars for the
+     *  same type lambda than this constraint. Do this by renaming type lambdas
+     *  in `c` where necessary.
+     */
+    def ensureNotConflicting(c: OrderingConstraint): OrderingConstraint = {
+      def hasConflictingTypeVarsFor(tl: TypeLambda) =
+        this.typeVarOfParam(tl.paramRefs(0)) ne c.typeVarOfParam(tl.paramRefs(0))
+          // Note: Since TypeVars are allocated in bulk for each type lambda, we only
+          // have to check the first one to find out if some of them are different.
+      val conflicting = c.domainLambdas.find(tl =>
+        this.contains(tl) && hasConflictingTypeVarsFor(tl))
+      conflicting match {
+        case Some(tl) => ensureNotConflicting(c.rename(tl))
+        case None => c
+      }
+    }
+
+    val that = ensureNotConflicting(other.asInstanceOf[OrderingConstraint])
+
     new OrderingConstraint(
         merge(this.boundsMap, that.boundsMap, mergeEntries),
         merge(this.lowerMap, that.lowerMap, mergeParams),
         merge(this.upperMap, that.upperMap, mergeParams))
+  }.reporting(i"constraint merge $this with $other = $result", constr)
+
+  def rename(tl: TypeLambda)(implicit ctx: Context): OrderingConstraint = {
+    assert(contains(tl))
+    val tl1 = ensureFresh(tl)
+    def swapKey[T](m: ArrayValuedMap[T]) = m.remove(tl).updated(tl1, m(tl))
+    var current = newConstraint(swapKey(boundsMap), swapKey(lowerMap), swapKey(upperMap))
+    def subst[T <: Type](x: T): T = x.subst(tl, tl1).asInstanceOf[T]
+    current.foreachParam {(p, i) =>
+      current = boundsLens.map(this, current, p, i, subst)
+      current = lowerLens.map(this, current, p, i, _.map(subst))
+      current = upperLens.map(this, current, p, i, _.map(subst))
+    }
+    current.foreachTypeVar { tvar =>
+      val TypeParamRef(binder, n) = tvar.origin
+      if (binder eq tl) tvar.setOrigin(tl1.paramRefs(n))
+    }
+    constr.println(i"renamd $this to $current")
+    current
   }
+
+  def ensureFresh(tl: TypeLambda)(implicit ctx: Context): TypeLambda =
+    if (contains(tl)) {
+      var paramInfos = tl.paramInfos
+      if (tl.isInstanceOf[HKLambda]) {
+        // HKLambdas are hash-consed, need to create an artificial difference by adding
+        // a LazyRef to a bound.
+        val TypeBounds(lo, hi) :: pinfos1 = tl.paramInfos
+        paramInfos = TypeBounds(lo, LazyRef(_ => hi)) :: pinfos1
+      }
+      ensureFresh(tl.newLikeThis(tl.paramNames, paramInfos, tl.resultType))
+    }
+    else tl
 
   override def checkClosed()(implicit ctx: Context): Unit = {
     def isFreeTypeParamRef(tp: Type) = tp match {
@@ -557,19 +595,18 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
     upperMap.foreachBinding((_, paramss) => paramss.foreach(_.foreach(checkClosedType(_, "upper"))))
   }
 
-  private[this] var myUninstVars: mutable.ArrayBuffer[TypeVar] = _
+  private var myUninstVars: mutable.ArrayBuffer[TypeVar] = _
 
   /** The uninstantiated typevars of this constraint */
   def uninstVars: collection.Seq[TypeVar] = {
     if (myUninstVars == null || myUninstVars.exists(_.inst.exists)) {
       myUninstVars = new mutable.ArrayBuffer[TypeVar]
       boundsMap.foreachBinding { (poly, entries) =>
-        for (i <- 0 until paramCount(entries)) {
+        for (i <- 0 until paramCount(entries))
           typeVar(entries, i) match {
             case tv: TypeVar if !tv.inst.exists && isBounds(entries(i)) => myUninstVars += tv
             case _ =>
           }
-        }
       }
     }
     myUninstVars
@@ -641,7 +678,7 @@ class OrderingConstraint(private val boundsMap: ParamBounds,
         val assocs =
           for (param <- domainParams)
           yield
-            param.binder.paramNames(param.paramNum) + ": " + entryText(entry(param))
+            s"${param.binder.paramNames(param.paramNum)}: ${entryText(entry(param))}"
         assocs.mkString("\n")
     }
     constrainedText + "\n" + boundsText

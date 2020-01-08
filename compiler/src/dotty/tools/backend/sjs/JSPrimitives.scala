@@ -41,11 +41,14 @@ object JSPrimitives {
 
   final val LastJSPrimitiveCode = THROW
 
+  def isJSPrimitive(code: Int): Boolean =
+    code >= FirstJSPrimitiveCode && code <= LastJSPrimitiveCode
+
 }
 
 class JSPrimitives(ctx: Context) extends DottyPrimitives(ctx) {
   import JSPrimitives._
-  import scala.tools.nsc.backend.ScalaPrimitivesOps._
+  import dotty.tools.backend.ScalaPrimitivesOps._
 
   private lazy val jsPrimitives: Map[Symbol, Int] = initJSPrimitives(ctx)
 

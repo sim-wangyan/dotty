@@ -7,7 +7,7 @@ import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.core.Types.WildcardType
 import dotty.tools.dotc.parsing.Tokens
 import dotty.tools.dotc.reporting.diagnostic.messages._
-import dotty.tools.dotc.transform.{CheckStatic, PostTyper, TailRec}
+import dotty.tools.dotc.transform.{CheckStatic, Erasure, PostTyper, TailRec}
 import dotty.tools.dotc.typer.{FrontEnd, RefChecks}
 import org.junit.Assert._
 import org.junit.Test
@@ -22,7 +22,7 @@ class ErrorMessagesTests extends ErrorMessagesTest {
   @Test def caseClassExtendsEnum =
     checkMessagesAfter(RefChecks.name) {
       """
-        |enum Foo {}
+        |enum Foo { case A, B }
         |case class Bar() extends Foo
       """.stripMargin
     }
@@ -30,7 +30,7 @@ class ErrorMessagesTests extends ErrorMessagesTest {
         implicit val ctx: Context = ictx
         assertMessageCount(1, messages)
         val errorMsg = messages.head
-        val CaseClassCannotExtendEnum(cls, parent) :: Nil = messages
+        val ClassCannotExtendEnum(cls, parent) :: Nil = messages
         assertEquals("Bar", cls.name.show)
         assertEquals("Foo", parent.name.show)
         assertEquals("<empty>", cls.owner.name.show)
@@ -500,8 +500,8 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       assertMessageCount(1, messages)
       val AmbiguousImport(name, newPrec, prevPrec, prevCtx) :: Nil = messages
       assertEquals("ToBeImported", name.show)
-      assertEquals(namedImport, newPrec)
-      assertEquals(namedImport, prevPrec)
+      assertEquals(NamedImport, newPrec)
+      assertEquals(NamedImport, prevPrec)
     }
 
   @Test def methodDoesNotTakeParameters =
@@ -702,21 +702,7 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       assertMessageCount(1, messages)
       val AbstractMemberMayNotHaveModifier(symbol, flags) :: Nil = messages
       assertEquals("value s", symbol.show)
-      assertEquals("final", flags.toString)
-    }
-
-  @Test def topLevelCantBeImplicit =
-    checkMessagesAfter(FrontEnd.name) {
-      """package Foo {
-        |  implicit object S
-        |}
-        |""".stripMargin
-    }
-    .expect { (ictx, messages) =>
-      implicit val ctx: Context = ictx
-      assertMessageCount(1, messages)
-      val TopLevelCantBeImplicit(symbol) :: Nil = messages
-      assertEquals("object S", symbol.show)
+      assertEquals("final", flags.flagsString)
     }
 
   @Test def typesAndTraitsCantBeImplicit =
@@ -729,8 +715,7 @@ class ErrorMessagesTests extends ErrorMessagesTest {
     .expect { (ictx, messages) =>
       implicit val ctx: Context = ictx
       assertMessageCount(1, messages)
-      val TypesAndTraitsCantBeImplicit(symbol) :: Nil = messages
-      assertEquals("trait S", symbol.show)
+      val TypesAndTraitsCantBeImplicit() :: Nil = messages
     }
 
   @Test def onlyClassesCanBeAbstract =
@@ -966,7 +951,7 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       implicit val ctx: Context = ictx
       assertMessageCount(1, messages)
       val err :: Nil = messages
-      assertEquals(err, ExpectedClassOrObjectDef())
+      assertEquals(err, ExpectedToplevelDef())
     }
 
   @Test def implicitClassPrimaryConstructorArity =
@@ -1020,30 +1005,12 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       assertEquals("method bar", symbol.show)
     }
 
-  @Test def modifiersNotAllowed =
-    verifyModifiersNotAllowed("lazy trait T", "lazy", Some("trait"))
-
-  @Test def modifiersOtherThanTraitMethodVariable =
-    verifyModifiersNotAllowed("sealed lazy class x", "sealed")
-
-  private def verifyModifiersNotAllowed(code: String, modifierAssertion: String,
-                                        typeAssertion: Option[String] = None) = {
-    checkMessagesAfter(RefChecks.name)(code)
-      .expect { (ictx, messages) =>
-        implicit val ctx: Context = ictx
-        assertMessageCount(1, messages)
-        val ModifiersNotAllowed(flags, sort) :: Nil = messages
-        assertEquals(modifierAssertion, flags.toString)
-        assertEquals(typeAssertion, sort)
-      }
-  }
-
   @Test def wildcardOnTypeArgumentNotAllowedOnNew =
     checkMessagesAfter(RefChecks.name) {
       """
         |object TyperDemo {
         |  class Team[A]
-        |  val team = new Team[_]
+        |  val team = new Team[?]
         |}""".stripMargin
     }
     .expect { (ictx, messages) =>
@@ -1170,19 +1137,19 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       assertEquals(method.show, "method foo")
     }
 
-    @Test def expectedTypeBoundOrEquals =
-      checkMessagesAfter(FrontEnd.name) {
-        """object typedef {
-          |  type asd > Seq
-          |}
-        """.stripMargin
-      }.expect { (ictx, messages) =>
-        implicit val ctx: Context = ictx
+  @Test def expectedTypeBoundOrEquals =
+    checkMessagesAfter(FrontEnd.name) {
+      """object typedef {
+        |  type asd > Seq
+        |}
+      """.stripMargin
+    }.expect { (ictx, messages) =>
+      implicit val ctx: Context = ictx
 
-        assertMessageCount(1, messages)
-        val ExpectedTypeBoundOrEquals(found) :: Nil = messages
-        assertEquals(Tokens.IDENTIFIER, found)
-      }
+      assertMessageCount(1, messages)
+      val ExpectedTypeBoundOrEquals(found) :: Nil = messages
+      assertEquals(Tokens.IDENTIFIER, found)
+    }
 
   @Test def classAndCompanionNameClash =
     checkMessagesAfter(RefChecks.name) {
@@ -1377,8 +1344,48 @@ class ErrorMessagesTests extends ErrorMessagesTest {
         assertMessageCount(1, messages)
         val UnapplyInvalidNumberOfArguments(qual, argTypes) :: Nil = messages
         assertEquals("Boo", qual.show)
-        assertEquals("(class Int, class String)", argTypes.map(_.typeSymbol).mkString("(", ", ", ")"))
+        assertEquals("(class Int, type String)", argTypes.map(_.typeSymbol).mkString("(", ", ", ")"))
       }
+
+  @Test def unapplyInvalidReturnType =
+    checkMessagesAfter("typer") {
+      """
+        |class A(val i: Int)
+        |
+        |object A {
+        |  def unapply(a: A): Int = a.i
+        |  def test(a: A) = a match {
+        |    case A() => 1
+        |  }
+        |}
+      """.stripMargin
+    }.expect { (ictx, messages) =>
+      implicit val ctx: Context = ictx
+      assertMessageCount(1, messages)
+      val UnapplyInvalidReturnType(unapplyResult, unapplyName) :: Nil = messages
+      assertEquals("Int", unapplyResult.show)
+      assertEquals("unapply", unapplyName.show)
+    }
+
+  @Test def unapplySeqInvalidReturnType =
+    checkMessagesAfter("typer") {
+      """
+        |class A(val i: Int)
+        |
+        |object A {
+        |  def unapplySeq(a: A): Int = a.i
+        |  def test(a: A) = a match {
+        |    case A() => 1
+        |  }
+        |}
+      """.stripMargin
+    }.expect { (ictx, messages) =>
+      implicit val ctx: Context = ictx
+      assertMessageCount(1, messages)
+      val UnapplyInvalidReturnType(unapplyResult, unapplyName) :: Nil = messages
+      assertEquals("Int", unapplyResult.show)
+      assertEquals("unapplySeq", unapplyName.show)
+    }
 
   @Test def staticOnlyAllowedInsideObjects =
     checkMessagesAfter(CheckStatic.name) {
@@ -1450,34 +1457,6 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       assertEquals("class Object", parentSym.show)
     }
 
-  @Test def javaSymbolIsNotAValue =
-    checkMessagesAfter(CheckStatic.name) {
-      """
-        |package p
-        |object O {
-        |  val v = p
-        |}
-      """.stripMargin
-    }.expect { (itcx, messages) =>
-      implicit val ctx: Context = itcx
-
-      assertMessageCount(1, messages)
-      val JavaSymbolIsNotAValue(symbol) = messages.head
-      assertEquals(symbol.show, "package p")
-    }
-
-  @Test def i3187 =
-    checkMessagesAfter(GenBCode.name) {
-      """
-        |package scala
-        |object collection
-      """.stripMargin
-    }.expect { (itcx, messages) =>
-      implicit val ctx: Context = itcx
-
-      assert(ctx.reporter.hasErrors)
-    }
-
   @Test def typeDoubleDeclaration =
     checkMessagesAfter(FrontEnd.name) {
       """
@@ -1489,7 +1468,7 @@ class ErrorMessagesTests extends ErrorMessagesTest {
     }.expect { (ictx, messages) =>
       implicit val ctx: Context = ictx
       assertMessageCount(1, messages)
-      val DoubleDeclaration(symbol, previousSymbol) :: Nil = messages
+      val DoubleDefinition(symbol, previousSymbol, _) :: Nil = messages
       assertEquals(symbol.name.mangledString, "a")
   }
 
@@ -1529,7 +1508,8 @@ class ErrorMessagesTests extends ErrorMessagesTest {
   @Test def notAnExtractor() =
     checkMessagesAfter(FrontEnd.name) {
       """
-        | class Foo
+        | trait Foo
+        | object Foo
         | object Test {
         |   def test(foo: Foo) = foo match {
         |       case Foo(name) => ???
@@ -1621,23 +1601,72 @@ class ErrorMessagesTests extends ErrorMessagesTest {
       )
     }
 
-    @Test def StableIdentifiers() =
-      checkMessagesAfter(FrontEnd.name) {
-        """
-          | object Test {
-          |   var x = 2
-          |   def test = 2 match {
-          |     case `x` => x + 1
-          |   }
-          | }
-        """.stripMargin
-      }.expect { (_, messages) =>
-        assertMessageCount(1, messages)
-        val message = messages.head
-        assertTrue(message.isInstanceOf[StableIdentPattern])
+  @Test def StableIdentifiers() =
+    checkMessagesAfter(FrontEnd.name) {
+      """
+        | object Test {
+        |   var x = 2
+        |   def test = 2 match {
+        |     case `x` => x + 1
+        |   }
+        | }
+      """.stripMargin
+    }.expect { (_, messages) =>
+      assertMessageCount(1, messages)
+      val message = messages.head
+      assertTrue(message.isInstanceOf[StableIdentPattern])
+      assertEquals(
+        "Stable identifier required, but `x` found",
+        message.msg
+      )
+    }
+
+  @Test def traitParametersUsedAsParentPrefix() =
+    checkMessagesAfter(RefChecks.name) {
+      """
+        |class Outer {
+        |   trait Inner
+        |   trait Test(val outer: Outer) extends outer.Inner
+        |}
+        |""".stripMargin
+    }.expect {
+      (ictx, messages) =>
+        implicit val ctx: Context = ictx
+        val TraitParameterUsedAsParentPrefix(cls) :: Nil = messages
+        assertEquals("trait Test", cls.show)
         assertEquals(
-          "Stable identifier required, but `x` found",
-          message.msg
+          s"${cls.show} cannot extend from a parent that is derived via its own parameters",
+          messages.head.msg
         )
-      }
+    }
+
+  @Test def unknownNamedEnclosingClassOrObject() =
+    checkMessagesAfter(RefChecks.name) {
+      """
+        |class TestObject {
+        |  private[doesNotExist] def test: Int = 5
+        |}
+      """.stripMargin
+    }
+    .expect { (ictx, messages) =>
+      implicit val ctx: Context = ictx
+      assertMessageCount(1, messages)
+      val UnknownNamedEnclosingClassOrObject(name) :: Nil = messages
+      assertEquals("doesNotExist", name.show)
+    }
+
+  @Test def illegalCyclicTypeReference() =
+    checkMessagesAfter(RefChecks.name) {
+      """
+        |type X = List[X]
+      """.stripMargin
+    }
+    .expect { (ictx, messages) =>
+      implicit val ctx: Context = ictx
+      assertMessageCount(1, messages)
+      val IllegalCyclicTypeReference(sym, where, lastChecked) :: Nil = messages
+      assertEquals("type X", sym.show)
+      assertEquals("alias", where)
+      assertEquals("List[X]", lastChecked.show)
+    }
 }

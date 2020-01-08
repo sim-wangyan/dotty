@@ -12,16 +12,16 @@ class DiagnosticsTest {
           |  val x: Int = $m1"foo"$m2
           |}""".withSource
       .diagnostics(m1,
-        (m1 to m2, """Found:    String("foo")
+        (m1 to m2, """Found:    ("foo" : String)
                      |Required: Int""".stripMargin, Error, Some(TypeMismatchID))
       )
 
   @Test def diagnosticMissingLambdaBody: Unit =
     code"""object Test {
-          |  Nil.map(x => x).filter(x$m1 =>$m2)
-          |$m3}""".withSource
+          |  Nil.map(x => x).filter(x$m1 =>$m2)$m3
+          |}""".withSource
       .diagnostics(m1,
-        (m2 to m3, "expression expected", Error, Some(IllegalStartSimpleExprID)),
+        (m2 to m2, "expression expected but ')' found", Error, Some(IllegalStartSimpleExprID)),
         (m1 to m1, """Found:    Null
                      |Required: Boolean""".stripMargin, Error, Some(TypeMismatchID))
       )

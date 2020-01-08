@@ -1,12 +1,17 @@
 package dotty.tools.sbtplugin
 
 import sbt._
+import sbt.Def.Initialize
 import sbt.Keys._
-import sbt.librarymanagement.DependencyResolution
+import sbt.librarymanagement.{
+  ivy, DependencyResolution, ScalaModuleInfo, SemanticSelector, UpdateConfiguration, UnresolvedWarningConfiguration,
+  VersionNumber
+}
 import sbt.internal.inc.ScalaInstance
 import xsbti.compile._
 import java.net.URLClassLoader
 import java.util.Optional
+import scala.util.Properties.isJavaAtLeast
 
 object DottyPlugin extends AutoPlugin {
   object autoImport {
@@ -23,13 +28,19 @@ object DottyPlugin extends AutoPlugin {
 
       val nightly = try {
         // get majorVersion from dotty.epfl.ch
-        val source0 = Source.fromURL("http://dotty.epfl.ch/versions/latest-nightly-base")
-        val majorVersion = source0.getLines().toSeq.head
+        val source0 = Source.fromURL("https://dotty.epfl.ch/versions/latest-nightly-base")
+        val majorVersionFromWebsite = source0.getLines().toSeq.head
         source0.close()
 
         // get latest nightly version from maven
-        val source1 =
-          Source.fromURL(s"http://repo1.maven.org/maven2/ch/epfl/lamp/dotty_$majorVersion/maven-metadata.xml")
+        def fetchSource(version: String): (scala.io.BufferedSource, String) =
+          try Source.fromURL(s"http://repo1.maven.org/maven2/ch/epfl/lamp/dotty_$version/maven-metadata.xml") -> version
+          catch { case t: java.io.FileNotFoundException =>
+            val major :: minor :: Nil = version.split('.').toList
+            if (minor.toInt <= 0) throw t
+            else fetchSource(s"$major.${minor.toInt - 1}")
+          }
+        val (source1, majorVersion) = fetchSource(majorVersionFromWebsite)
         val Version = s"      <version>($majorVersion\\..*-bin.*)</version>".r
         val nightly = source1
           .getLines()
@@ -71,16 +82,40 @@ object DottyPlugin extends AutoPlugin {
        *  with Dotty this will change the cross-version to a Scala 2.x one. This
        *  works because Dotty is currently retro-compatible with Scala 2.x.
        *
-       *  NOTE: Dotty's retro-compatibility with Scala 2.x will be dropped before
-       *  Dotty is released, you should not rely on it.
+       *  NOTE: As a special-case, the cross-version of dotty-library, dotty-compiler and
+       *  dotty will never be rewritten because we know that they're Dotty-only.
+       *  This makes it possible to do something like:
+       *  {{{
+       *  libraryDependencies ~= (_.map(_.withDottyCompat(scalaVersion.value)))
+       *  }}}
        */
-      def withDottyCompat(scalaVersion: String): ModuleID =
-      moduleID.crossVersion match {
-          case _: librarymanagement.Binary if scalaVersion.startsWith("0.") =>
-            moduleID.cross(CrossVersion.constant("2.12"))
-          case _ =>
-            moduleID
-        }
+      def withDottyCompat(scalaVersion: String): ModuleID = {
+        val name = moduleID.name
+        if (name != "dotty" && name != "dotty-library" && name != "dotty-compiler")
+          moduleID.crossVersion match {
+            case _: librarymanagement.Binary =>
+              val compatVersion =
+                CrossVersion.partialVersion(scalaVersion) match {
+                  case Some((3, _)) =>
+                    "2.13"
+                  case Some((0, minor)) =>
+                    if (minor > 18 || scalaVersion.startsWith("0.18.1"))
+                      "2.13"
+                    else
+                      "2.12"
+                  case _ =>
+                    ""
+                }
+              if (compatVersion.nonEmpty)
+                moduleID.cross(CrossVersion.constant(compatVersion))
+              else
+                moduleID
+            case _ =>
+              moduleID
+          }
+        else
+          moduleID
+      }
     }
   }
 
@@ -88,20 +123,6 @@ object DottyPlugin extends AutoPlugin {
 
   override def requires: Plugins = plugins.JvmPlugin
   override def trigger = allRequirements
-
-  // Adapted from CrossVersionUtil#sbtApiVersion
-  private def sbtFullVersion(v: String): Option[(Int, Int, Int)] =
-  {
-    val ReleaseV = """(\d+)\.(\d+)\.(\d+)(-\d+)?""".r
-    val CandidateV = """(\d+)\.(\d+)\.(\d+)(-RC\d+)""".r
-    val NonReleaseV = """(\d+)\.(\d+)\.(\d+)([-\w+]*)""".r
-    v match {
-      case ReleaseV(x, y, z, ht) => Some((x.toInt, y.toInt, z.toInt))
-      case CandidateV(x, y, z, ht)  => Some((x.toInt, y.toInt, z.toInt))
-      case NonReleaseV(x, y, z, ht) if z.toInt > 0 => Some((x.toInt, y.toInt, z.toInt))
-      case _ => None
-    }
-  }
 
   /** Patches the IncOptions so that .tasty and .hasTasty files are pruned as needed.
    *
@@ -132,19 +153,22 @@ object DottyPlugin extends AutoPlugin {
 
   override val globalSettings: Seq[Def.Setting[_]] = Seq(
     onLoad in Global := onLoad.in(Global).value.andThen { state =>
+
+      val requiredVersion = ">=1.2.7"
+
       val sbtV = sbtVersion.value
-      sbtFullVersion(sbtV) match {
-        case Some((1, sbtMinor, sbtPatch)) if sbtMinor > 1 || (sbtMinor == 1  && sbtPatch >= 5) =>
-        case _ =>
-          sys.error(s"The sbt-dotty plugin cannot work with this version of sbt ($sbtV), sbt >= 1.1.5 is required.")
-      }
+      if (!VersionNumber(sbtV).matchesSemVer(SemanticSelector(requiredVersion)))
+        sys.error(s"The sbt-dotty plugin cannot work with this version of sbt ($sbtV), sbt $requiredVersion is required.")
+
       state
     }
   )
 
+  // https://github.com/sbt/sbt/issues/3110
+  val Def = sbt.Def
   override def projectSettings: Seq[Setting[_]] = {
     Seq(
-      isDotty := scalaVersion.value.startsWith("0."),
+      isDotty := scalaVersion.value.startsWith("0.") || scalaVersion.value.startsWith("3."),
 
       scalaOrganization := {
         if (isDotty.value)
@@ -152,8 +176,6 @@ object DottyPlugin extends AutoPlugin {
         else
           scalaOrganization.value
       },
-
-      scalacOptions in (Compile, doc) ++= Seq("-project", name.value),
 
       incOptions in Compile := {
         val inc = (incOptions in Compile).value
@@ -163,14 +185,22 @@ object DottyPlugin extends AutoPlugin {
           inc
       },
 
-      scalaCompilerBridgeSource := {
-        val scalaBridge = scalaCompilerBridgeSource.value
-        val dottyBridge = (scalaOrganization.value % "dotty-sbt-bridge" % scalaVersion.value).withConfigurations(Some(Configurations.Compile.name)).sources()
-        if (isDotty.value)
-          dottyBridge
-        else
-          scalaBridge
-      },
+      scalaCompilerBridgeBinaryJar := Def.settingDyn {
+        if (isDotty.value) Def.task {
+          val updateReport = fetchArtifactsOf(
+            scalaOrganization.value % "dotty-sbt-bridge" % scalaVersion.value,
+            dependencyResolution.value,
+            scalaModuleInfo.value,
+            updateConfiguration.value,
+            (unresolvedWarningConfiguration in update).value,
+            streams.value.log,
+          )
+          Option(getJar(updateReport, scalaOrganization.value, "dotty-sbt-bridge", scalaVersion.value))
+        }
+        else Def.task {
+          None: Option[File]
+        }
+      }.value,
 
       // Needed for RCs publishing
       scalaBinaryVersion := {
@@ -180,72 +210,242 @@ object DottyPlugin extends AutoPlugin {
           scalaBinaryVersion.value
       },
 
-      scalaInstance := Def.taskDyn {
-        val si = scalaInstance.value
-        if (isDotty.value) {
-          Def.task {
-            val dottydocArtifacts = fetchArtifactsOf("dotty-doc").value
-            val includeArtifact = (f: File) => f.getName.endsWith(".jar")
-            val dottydocJars = dottydocArtifacts.filter(includeArtifact).toArray
-            val allJars = (si.allJars ++ dottydocJars).distinct
-            val loader = new URLClassLoader(Path.toURLs(dottydocJars), si.loader)
-            new ScalaInstance(si.version, loader, si.loaderLibraryOnly, si.libraryJar, si.compilerJar, allJars, si.explicitActual)
-          }
-        } else {
-          Def.task { si }
-        }
-      }.value,
+      // Ideally, we should have:
+      //
+      // 1. Nothing but the Java standard library on the _JVM_ bootclasspath
+      //    (starting with Java 9 we cannot inspect it so we don't have a choice)
+      //
+      // 2. scala-library, dotty-library, dotty-compiler, dotty-doc on the _JVM_
+      //    classpath, because we need all of those to actually run the compiler
+      //    and the doc tool.
+      //    NOTE: All of those should have the *same version* (equal to scalaVersion
+      //    for everything but scala-library).
+      //
+      // 3. scala-library, dotty-library on the _compiler_ bootclasspath because
+      //    user code should always have access to the symbols from these jars but
+      //    should not be able to shadow them (the compiler bootclasspath has
+      //    higher priority than the compiler classpath).
+      //    NOTE: the versions of {scala,dotty}-library used here do not necessarily
+      //    match the one used in 2. because a dependency of the current project might
+      //    require more recent versions, this is OK.
+      //
+      // 4. every other dependency of the user project on the _compiler_
+      //    classpath.
+      //
+      // Unfortunately, zinc assumes that the compiler bootclasspath is only
+      // made of one jar (scala-library), so to make this work we'll need to
+      // either change sbt's bootclasspath handling or wait until the
+      // dotty-library jar and scala-library jars are merged into one jar.
+      // Furthermore, zinc will put on the compiler bootclasspath the
+      // scala-library used on the JVM classpath, even if the current project
+      // transitively depends on a newer scala-library (this works because Scala
+      // 2 guarantees forward- and backward- binary compatibility, but we don't
+      // necessarily want to keep doing that in Scala 3).
+      // So for the moment, let's just put nothing at all on the compiler
+      // bootclasspath, and instead have scala-library and dotty-library on the
+      // compiler classpath. This means that user code could shadow symbols
+      // from these jars but we can live with that for now.
 
+      // sbt crazy scoping rules mean that when we override `classpathOptions`
+      // below we also override `classpathOptions in console` which is normally
+      // set in https://github.com/sbt/sbt/blob/b6f02b9b8cd0abb15e3d8856fd76b570deb1bd61/main/src/main/scala/sbt/Defaults.scala#L503,
+      // this breaks `sbt console` in Scala 2 projects.
+      // There seems to be no way to avoid stomping over task-scoped settings,
+      // so we need to manually set `classpathOptions in console` to something sensible,
+      // ideally this would be "whatever would be set if this plugin was not enabled",
+      // but I can't find a way to do this, so we default to whatever is set in ThisBuild.
+      classpathOptions in console := {
+        if (isDotty.value)
+          classpathOptions.value // The Dotty REPL doesn't require anything special on its classpath
+        else
+          (classpathOptions in console in ThisBuild).value
+      },
+      classpathOptions := {
+        val old = classpathOptions.value
+        if (isDotty.value)
+          old
+            .withAutoBoot(false)      // we don't put the library on the compiler bootclasspath (as explained above)
+            .withFilterLibrary(false) // ...instead, we put it on the compiler classpath
+        else
+          old
+      },
+      // ... but when running under Java 8, we still need a compiler bootclasspath
+      // that contains the JVM bootclasspath, otherwise sbt incremental
+      // compilation breaks.
+      scalacOptions ++= {
+        if (isDotty.value && !isJavaAtLeast("9"))
+          Seq("-bootclasspath", sys.props("sun.boot.class.path"))
+        else
+          Seq()
+      },
+      // If the current scalaVersion is N and we transitively depend on
+      // {scala, dotty}-{library, compiler, ...} M where M > N, we want the
+      // newest version on our compiler classpath, but sbt by default will
+      // instead rewrite all our dependencies to version N, the following line
+      // prevents this behavior.
       scalaModuleInfo := {
         val old = scalaModuleInfo.value
-        if (isDotty.value) {
-          // Turns off the warning:
-          // [warn] Binary version (0.9.0-RC1) for dependency ...;0.9.0-RC1
-          // [warn]  in ... differs from Scala binary version in project (0.9).
-          old.map(_.withCheckExplicit(false))
-        } else old
+        if (isDotty.value)
+          old.map(_.withOverrideScalaVersion(false))
+        else
+          old
+      },
+      // Prevent sbt from creating a ScalaTool configuration
+      managedScalaInstance := {
+        val old = managedScalaInstance.value
+        if (isDotty.value)
+          false
+        else
+          old
+      },
+      // ... instead, we'll fetch the compiler and its dependencies ourselves.
+      scalaInstance := Def.taskDyn {
+        if (isDotty.value)
+          dottyScalaInstanceTask("dotty-compiler")
+        else
+          Def.valueStrict { scalaInstance.taskValue }
+      }.value,
+
+      // We need more stuff on the classpath to run the `doc` task.
+      scalaInstance in doc := Def.taskDyn {
+        if (isDotty.value)
+          dottyScalaInstanceTask("dotty-doc")
+        else
+          Def.valueStrict { (scalaInstance in doc).taskValue }
+      }.value,
+
+      // Because managedScalaInstance is false, sbt won't add the standard library to our dependencies for us
+      libraryDependencies ++= {
+        if (isDotty.value && autoScalaLibrary.value)
+          Seq(scalaOrganization.value %% "dotty-library" % scalaVersion.value)
+        else
+          Seq()
       },
 
-      updateOptions := {
-        val old = updateOptions.value
-        if (isDotty.value) {
-          // Turn off the warning:
-          //  circular dependency found:
-          //    ch.epfl.lamp#scala-library;0.9.0-RC1->ch.epfl.lamp#dotty-library_0.9;0.9.0-RC1->...
-          // (This should go away once we merge dotty-library and scala-library in one artefact)
-          old.withCircularDependencyLevel(sbt.librarymanagement.ivy.CircularDependencyLevel.Ignore)
-        } else old
+      // Turns off the warning:
+      // [warn] Binary version (0.9.0-RC1) for dependency ...;0.9.0-RC1
+      // [warn]  in ... differs from Scala binary version in project (0.9).
+      scalaModuleInfo := {
+        val old = scalaModuleInfo.value
+        if (isDotty.value)
+          old.map(_.withCheckExplicit(false))
+        else
+          old
       }
     ) ++ inConfig(Compile)(docSettings) ++ inConfig(Test)(docSettings)
   }
 
   private val docSettings = inTask(doc)(Seq(
-    sources := {
-      val _ = compile.value // Ensure that everything is compiled, so TASTy is available.
-      val prev = sources.value
-      val tastyFiles = (classDirectory.value ** "*.tasty").get.map(_.getAbsoluteFile)
-      prev ++ tastyFiles
+    sources := Def.taskDyn {
+      val old = sources.value
+
+      if (isDotty.value) Def.task {
+        val _ = compile.value // Ensure that everything is compiled, so TASTy is available.
+        val tastyFiles = (classDirectory.value ** "*.tasty").get.map(_.getAbsoluteFile)
+        old ++ tastyFiles
+      } else Def.task {
+        old
+      }
+    }.value,
+
+    scalacOptions ++= {
+      if (isDotty.value) {
+        val projectName =
+          if (configuration.value == Compile)
+            name.value
+          else
+            s"${name.value}-${configuration.value}"
+        Seq(
+          "-project", projectName,
+          "-from-tasty"
+        )
+      }
+      else
+        Seq()
     },
-    scalacOptions += "-from-tasty"
   ))
 
-  /** Fetch artefacts for scalaOrganization.value %% moduleName % scalaVersion.value */
-  private def fetchArtifactsOf(moduleName: String) = Def.task {
-    val dependencyResolution = Keys.dependencyResolution.value
-    val log = streams.value.log
-    val scalaInfo = scalaModuleInfo.value
-    val updateConfiguration = Keys.updateConfiguration.value
-    val warningConfiguration = (unresolvedWarningConfiguration in update).value
+  /** Fetch artifacts for moduleID */
+  def fetchArtifactsOf(
+    moduleID: ModuleID,
+    dependencyRes: DependencyResolution,
+    scalaInfo: Option[ScalaModuleInfo],
+    updateConfig: UpdateConfiguration,
+    warningConfig: UnresolvedWarningConfiguration,
+    log: Logger): UpdateReport = {
+    val descriptor = dependencyRes.wrapDependencyInModule(moduleID, scalaInfo)
 
-    val moduleID = (scalaOrganization.value %% moduleName % scalaVersion.value).cross(CrossVersion.binary)
-    val descriptor = dependencyResolution.wrapDependencyInModule(moduleID, scalaInfo)
-
-    dependencyResolution.update(descriptor, updateConfiguration, warningConfiguration, log) match {
+    dependencyRes.update(descriptor, updateConfig, warningConfig, log) match {
       case Right(report) =>
-        report.allFiles
+        report
       case _ =>
         throw new MessageOnlyException(
-          s"Couldn't retrieve `${scalaOrganization.value} %% $moduleName %% ${scalaVersion.value}`.")
+          s"Couldn't retrieve `$moduleID`.")
     }
+  }
+
+  /** Get all jars in updateReport that match the given filter. */
+  def getJars(updateReport: UpdateReport, organization: NameFilter, name: NameFilter, revision: NameFilter): Seq[File] = {
+    updateReport.select(
+      configurationFilter(Runtime.name),
+      moduleFilter(organization, name, revision),
+      artifactFilter(extension = "jar", classifier = "")
+    )
+  }
+
+  /** Get the single jar in updateReport that match the given filter.
+   *  If zero or more than one jar match, an exception will be thrown.
+   */
+  def getJar(updateReport: UpdateReport, organization: NameFilter, name: NameFilter, revision: NameFilter): File = {
+    val jars = getJars(updateReport, organization, name, revision)
+    assert(jars.size == 1, s"There should only be one $name jar but found: $jars")
+    jars.head
+  }
+
+  /** Create a scalaInstance task that uses Dotty based on `moduleName`. */
+  def dottyScalaInstanceTask(moduleName: String): Initialize[Task[ScalaInstance]] = Def.task {
+    val updateReport =
+      fetchArtifactsOf(
+        scalaOrganization.value %% moduleName % scalaVersion.value,
+        dependencyResolution.value,
+        scalaModuleInfo.value,
+        updateConfiguration.value,
+        (unresolvedWarningConfiguration in update).value,
+        streams.value.log)
+    val scalaLibraryJar = getJar(updateReport,
+      "org.scala-lang", "scala-library", revision = AllPassFilter)
+    val dottyLibraryJar = getJar(updateReport,
+      scalaOrganization.value, s"dotty-library_${scalaBinaryVersion.value}", scalaVersion.value)
+    val compilerJar = getJar(updateReport,
+      scalaOrganization.value, s"dotty-compiler_${scalaBinaryVersion.value}", scalaVersion.value)
+    val allJars =
+      getJars(updateReport, AllPassFilter, AllPassFilter, AllPassFilter)
+
+    makeScalaInstance(
+      state.value,
+      scalaVersion.value,
+      scalaLibraryJar,
+      dottyLibraryJar,
+      compilerJar,
+      allJars
+    )
+  }
+
+  def makeScalaInstance(
+    state: State, dottyVersion: String, scalaLibrary: File, dottyLibrary: File, compiler: File, all: Seq[File]
+  ): ScalaInstance = {
+    val loader = state.classLoaderCache(all.toList)
+    val loaderLibraryOnly = state.classLoaderCache(List(dottyLibrary, scalaLibrary))
+    new ScalaInstance(
+      dottyVersion,
+      loader,
+      loaderLibraryOnly,
+      scalaLibrary, // Should be a Seq also containing dottyLibrary but zinc
+                    // doesn't support this, see comment above our redefinition
+                    // of `classpathOption`
+      compiler,
+      all.toArray,
+      None)
+
   }
 }
